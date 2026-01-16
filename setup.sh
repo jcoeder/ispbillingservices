@@ -422,5 +422,8 @@ detect_firewall
 open_ports
 verify_ports
 
+# Seed the admin user
+python3 -c "from app import seed_admin; seed_admin()" && echo "Admin user seeded." || echo "Failed to seed admin user."
+
 echo "Firewall setup complete."
 echo "Setup complete. Log in with admin/adminpassword and change the password."
