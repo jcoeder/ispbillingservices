@@ -1,0 +1,11 @@
+<h1>Accounts for {{ vendor.name }}</h1>
+<form method="POST">
+    <input name="account_id" placeholder="Account ID" required>
+    <button type="submit">Add Account</button>
+</form>
+<ul>
+{% for account in accounts %}
+<li><a href="{{ url_for('manage_services', account_id=account.id) }}">{{ account.account_id }}</a></li>
+{% endfor %}
+</ul>
+<a href="{{ url_for('manage_vendors') }}">Back to Vendors</a>

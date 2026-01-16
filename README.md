@@ -26,6 +26,7 @@ git clone https://github.com/jcoeder/isp-invoice-tracker.git
 ### Step 2: Install dependencies and setup the environment
 ```bash
 cd isp-invoice-tracker
+chmod +x setup.sh
 sudo ./setup.sh
 ``` 
  

@@ -1,0 +1,16 @@
+<h1>All Services for {{ vendor.name }}</h1>
+<form method="GET">
+    <select name="account_id">
+        <option value="">All Accounts</option>
+        {% for account in accounts %}
+        <option value="{{ account.id }}" {% if selected_account_id == account.id %}selected{% endif %}>{{ account.account_id }}</option>
+        {% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+</form>
+<ul>
+{% for service in services %}
+<li>{{ service.type }} - {{ service.a_location or 'N/A' }} - {{ service.account_number }} - {{ service.description or 'N/A' }} (Account: {{ service.account.account_id }}) <a href="{{ url_for('edit_service', service_id=service.id) }}">Edit</a> <a href="{{ url_for('delete_service', service_id=service.id) }}">Delete</a></li>
+{% endfor %}
+</ul>
+<a href="{{ url_for('manage_vendors') }}">Back to Vendors</a>
