@@ -1,4 +1,22 @@
 #!/bin/bash
+
+# Configuration Variables
+APP_DIR="/opt/isp-circuit-invoice-tracker"
+DB_USER="isptracker"
+DB_PASS="changeme"  # Change this to a secure password
+DB_NAME="isptracker_db"
+DB_URI="postgresql://$DB_USER:$DB_PASS@localhost/$DB_NAME"
+ENV_FILE="$APP_DIR/.env"
+APP_FILE="$APP_DIR/app.py"
+ALEMBIC_INI="$APP_DIR/migrations/alembic.ini"
+SYSTEM_DIR="$APP_DIR/system_files"
+SECRET_KEY=""  # Will be generated later
+PACKAGE_MANAGER=""
+SYSTEM_TYPE=""
+FIREWALL=""
+FIREWALL_RUNNING=""
+CLEAR_DB=false
+
 # Function to generate a secure Flask secret key
 generate_secret_key() {
     python3 -c "import secrets; print(secrets.token_urlsafe(32))" > /tmp/secret_key.txt
@@ -10,20 +28,16 @@ generate_secret_key() {
         exit 1
     fi
 }
+
 # Function to create .env file with secret key and DB URI
 create_env_file() {
-    ENV_FILE="/opt/isp-circuit-invoice-tracker/.env"
-    DB_USER="isptracker"
-    DB_PASS="changeme"  # Change this to a secure password
-    DB_NAME="isptracker_db"
-    DB_URI="postgresql://$DB_USER:$DB_PASS@localhost/$DB_NAME"
     echo "SECRET_KEY=$SECRET_KEY" > "$ENV_FILE"
     echo "SQLALCHEMY_DATABASE_URI=$DB_URI" >> "$ENV_FILE"
     echo ".env file created successfully at $ENV_FILE."
 }
+
 # Function to update app.py to load .env and update config lines
 update_app_py() {
-    APP_FILE="/opt/isp-circuit-invoice-tracker/app.py"
     if [ -f "$APP_FILE" ]; then
         # Add load_dotenv() after imports if not present
         if ! grep -q "load_dotenv()" "$APP_FILE"; then
@@ -36,9 +50,9 @@ update_app_py() {
         exit 1
     fi
 }
+
 # Function to create system_files directory and necessary files
 create_system_files() {
-    SYSTEM_DIR="/opt/isp-circuit-invoice-tracker/system_files"
     mkdir -p "$SYSTEM_DIR" && echo "system_files directory created." || { echo "Failed to create system_files directory."; exit 1; }
 
     # Create isp-circuit-invoice-tracker.service
@@ -50,9 +64,9 @@ After=network.target
 [Service]
 User=isptracker
 Group=isptracker
-WorkingDirectory=/opt/isp-circuit-invoice-tracker
-Environment="PATH=/opt/isp-circuit-invoice-tracker/venv/bin"
-ExecStart=/opt/isp-circuit-invoice-tracker/venv/bin/gunicorn --workers 3 --bind unix:/tmp/isp-circuit-invoice-tracker.sock -m 007 app:app
+WorkingDirectory=$APP_DIR
+Environment="PATH=$APP_DIR/venv/bin"
+ExecStart=$APP_DIR/venv/bin/gunicorn --workers 3 --bind unix:/tmp/isp-circuit-invoice-tracker.sock -m 007 app:app
 Restart=always
 
 [Install]
@@ -68,7 +82,7 @@ server {
 
     location = /favicon.ico { access_log off; log_not_found off; }
     location /static {
-        alias /opt/isp-circuit-invoice-tracker/static;  # Adjust if you have static files
+        alias $APP_DIR/static;  # Adjust if you have static files
     }
 
     location / {
@@ -113,11 +127,13 @@ http {
 EOF
     echo "Nginx main config file created for RHEL."
 }
+
 # Function to check and copy configuration files (if any, e.g., sample configs)
 copy_config_files() {
     # Assuming no specific config files like in BGP example; add if needed
     echo "No config files to copy for this app."
 }
+
 # Function to detect the package manager
 detect_package_manager() {
     if command -v apt >/dev/null 2>&1; then
@@ -137,6 +153,7 @@ detect_package_manager() {
         exit 1
     fi
 }
+
 # Function to install dependencies based on package manager, including PostgreSQL 16
 install_dependencies() {
     case $PACKAGE_MANAGER in
@@ -173,10 +190,9 @@ install_dependencies() {
             ;;
     esac
 }
+
 # Function to clear database (drop DB, user, and permissions)
 clear_database() {
-    DB_USER="isptracker"
-    DB_NAME="isptracker_db"
     # Revoke all privileges from the user on the database and globally
     sudo -u postgres psql -c "REVOKE ALL ON DATABASE $DB_NAME FROM $DB_USER;" 2>/dev/null || echo "No privileges to revoke on database."
     sudo -u postgres psql -c "REVOKE ALL PRIVILEGES ON SCHEMA public FROM $DB_USER;" 2>/dev/null || echo "No privileges to revoke on schema."
@@ -185,22 +201,37 @@ clear_database() {
     sudo -u postgres psql -c "DROP USER IF EXISTS $DB_USER;" 2>/dev/null && echo "User $DB_USER dropped." || echo "User $DB_USER not found or failed to drop."
     echo "Database and user cleared."
 }
+
 # Function to setup PostgreSQL database and user
 setup_postgres() {
-    DB_USER="isptracker"
-    DB_PASS="changeme"  # Change this
-    DB_NAME="isptracker_db"
     sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';" 2>/dev/null && echo "PostgreSQL user created." || echo "PostgreSQL user may already exist."
     sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;" 2>/dev/null && echo "PostgreSQL database created." || echo "PostgreSQL database may already exist."
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" && echo "Privileges granted." || { echo "Failed to grant privileges."; exit 1; }
 }
+
 # Function to update alembic.ini with DB URI
 update_alembic_ini() {
-    ALEMBIC_INI="/opt/isp-circuit-invoice-tracker/migrations/alembic.ini"
     if [ -f "$ALEMBIC_INI" ]; then
         sed -i "s|# sqlalchemy.url = driver://user:pass@localhost/dbname|sqlalchemy.url = $DB_URI|" "$ALEMBIC_INI" && echo "Updated alembic.ini with DB URI." || { echo "Failed to update alembic.ini."; exit 1; }
     fi
 }
+
+# Function to create the system user based on system type
+create_system_user() {
+    case $SYSTEM_TYPE in
+        "debian")
+            sudo adduser --system --shell /bin/false isptracker && echo "System user isptracker created (Debian)." || echo "Failed to create system user."
+            ;;
+        "rhel")
+            sudo useradd -r -s /bin/false isptracker && echo "System user isptracker created (RHEL)." || echo "Failed to create system user."
+            ;;
+        *)
+            echo "Unsupported system type for user creation."
+            exit 1
+            ;;
+    esac
+}
+
 # Function to detect the active firewall system and check if it's running
 detect_firewall() {
     echo "Detecting active firewall system..."
@@ -240,6 +271,7 @@ detect_firewall() {
         echo "No supported firewall (firewalld, ufw, or iptables) detected. Assuming no firewall is configured or running."
     fi
 }
+
 # Function to open ports 80 and 443 based on the detected firewall and if it's running
 open_ports() {
     if [ "$FIREWALL_RUNNING" == "no" ]; then
@@ -271,6 +303,7 @@ open_ports() {
             ;;
     esac
 }
+
 # Function to verify if ports are open (optional check)
 verify_ports() {
     if [ "$FIREWALL_RUNNING" == "no" ]; then
@@ -288,8 +321,8 @@ verify_ports() {
         echo "No firewall detected, unable to verify port status. Check manually if needed."
     fi
 }
+
 # Parse command-line flags
-CLEAR_DB=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --clear-database)
@@ -303,6 +336,7 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
 # If clear-database flag is set, only clear and exit
 if [ "$CLEAR_DB" = true ]; then
     detect_package_manager
@@ -310,53 +344,66 @@ if [ "$CLEAR_DB" = true ]; then
     echo "Database cleared. Exiting."
     exit 0
 fi
+
 # Generate Flask secret key and create .env
 generate_secret_key
 create_env_file
 update_app_py
+
 # Create system_files and necessary files
 create_system_files
+
 # Detect the package manager
 detect_package_manager
+
 # Install dependencies
 install_dependencies
+
 # Setup PostgreSQL
 setup_postgres
+
 # Set up virtual environment and install requirements
-python3 -m venv venv && echo "Virtual environment created successfully." || { echo "Failed to create virtual environment."; exit 1; }
-source venv/bin/activate && echo "Virtual environment activated successfully." || { echo "Failed to activate virtual environment."; exit 1; }
+python3 -m venv "$APP_DIR/venv" && echo "Virtual environment created successfully." || { echo "Failed to create virtual environment."; exit 1; }
+source "$APP_DIR/venv/bin/activate" && echo "Virtual environment activated successfully." || { echo "Failed to activate virtual environment."; exit 1; }
 pip install --upgrade pip && echo "Pip upgraded successfully." || echo "Failed to upgrade pip, continuing with current version."
 pip install -r requirements.txt && echo "Requirements installation completed." || { echo "Requirements installation failed."; exit 1; }
+
 # Run Flask migrations to set up DB schema (set non-interactive env)
-export FLASK_APP=app.py
+export FLASK_APP="$APP_FILE"
 export FLASK_ENV=production  # Avoid prompts
 flask db init 2>/dev/null || echo "DB init skipped (may already exist)."
 update_alembic_ini
 flask db migrate -m "Initial migration" && flask db upgrade && echo "Database migrations completed." || { echo "Database migration failed."; exit 1; }
-# Create user and set permissions
-id isptracker >/dev/null 2>&1 || sudo adduser -r -s /bin/false isptracker && echo "User isptracker created successfully." || echo "User isptracker already exists."
-sudo usermod -s /bin/bash isptracker && echo "User isptracker shell updated successfully." || { echo "Failed to update user isptracker shell."; exit 1; }
-sudo chown -R isptracker:isptracker /opt/isp-circuit-invoice-tracker && echo "Permissions set for /opt/isp-circuit-invoice-tracker successfully." || { echo "Failed to set permissions for /opt/isp-circuit-invoice-tracker."; exit 1; }
+
+# Create system user
+create_system_user
+
+# Set permissions
+sudo chown -R isptracker:isptracker "$APP_DIR" && echo "Permissions set for $APP_DIR successfully." || { echo "Failed to set permissions for $APP_DIR."; exit 1; }
+
 # Copy configuration files before starting the service
 copy_config_files
+
 # Create symlink for systemd service
-sudo ln -s /opt/isp-circuit-invoice-tracker/system_files/isp-circuit-invoice-tracker.service /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service symlink created successfully." || { echo "Failed to create systemd service symlink."; exit 1; }
+sudo ln -s "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service symlink created successfully." || { echo "Failed to create systemd service symlink."; exit 1; }
 sudo systemctl daemon-reload && echo "Systemd daemon reloaded successfully." || { echo "Failed to reload systemd daemon."; exit 1; }
 sudo systemctl enable --now isp-circuit-invoice-tracker && echo "Systemd service enabled and started successfully." || { echo "Failed to enable and start systemd service."; exit 1; }
 sudo systemctl status isp-circuit-invoice-tracker >/dev/null 2>&1 & wait $! && echo "Systemd service status checked successfully in background." || echo "Failed to check systemd service status in background."
+
 # Set up SSL certificates
 sudo mkdir -p /etc/ssl/private && echo "SSL private directory created successfully." || { echo "Failed to create SSL private directory."; exit 1; }
 sudo chmod 700 /etc/ssl/private && echo "SSL private directory permissions set successfully." || { echo "Failed to set SSL private directory permissions."; exit 1; }
 sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/isp-circuit-invoice-tracker.key -out /etc/ssl/certs/isp-circuit-invoice-tracker.crt -batch && echo "SSL certificates generated successfully." || { echo "Failed to generate SSL certificates."; exit 1; }
+
 # Configure Nginx based on system type
 case $SYSTEM_TYPE in
     "debian")
-        sudo ln -s /opt/isp-circuit-invoice-tracker/system_files/isp-circuit-invoice-tracker.conf /etc/nginx/sites-available/isp-circuit-invoice-tracker && echo "Nginx config symlink created in sites-available successfully." || { echo "Failed to create Nginx config symlink in sites-available."; exit 1; }
+        sudo ln -s "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/sites-available/isp-circuit-invoice-tracker && echo "Nginx config symlink created in sites-available successfully." || { echo "Failed to create Nginx config symlink in sites-available."; exit 1; }
         sudo ln -s /etc/nginx/sites-available/isp-circuit-invoice-tracker /etc/nginx/sites-enabled/ && echo "Nginx config symlink enabled in sites-enabled successfully." || { echo "Failed to enable Nginx config symlink in sites-enabled."; exit 1; }
         ;;
     "rhel")
-        sudo ln -s /opt/isp-circuit-invoice-tracker/system_files/isp-circuit-invoice-tracker.conf /etc/nginx/conf.d/isp-circuit-invoice-tracker.conf && echo "Nginx config symlink created in conf.d successfully." || { echo "Failed to create Nginx config symlink in conf.d."; exit 1; }
-        sudo cp system_files/nginx.conf /etc/nginx/nginx.conf && echo "Nginx main config copied successfully." || { echo "Failed to copy Nginx main config."; exit 1; }
+        sudo ln -s "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/conf.d/isp-circuit-invoice-tracker.conf && echo "Nginx config symlink created in conf.d successfully." || { echo "Failed to create Nginx config symlink in conf.d."; exit 1; }
+        sudo cp "$SYSTEM_DIR/nginx.conf" /etc/nginx/nginx.conf && echo "Nginx main config copied successfully." || { echo "Failed to copy Nginx main config."; exit 1; }
         sudo setsebool -P httpd_can_network_connect 1 && echo "SELinux boolean set successfully." || { echo "Failed to set SELinux boolean."; exit 1; }
         ;;
     *)
@@ -364,13 +411,16 @@ case $SYSTEM_TYPE in
         exit 1
         ;;
 esac
+
 # Test and apply Nginx configuration
 sudo nginx -t && echo "Nginx configuration test passed." || { echo "Nginx configuration test failed."; exit 1; }
 sudo systemctl reload nginx && echo "Nginx reloaded successfully." || { echo "Failed to reload Nginx."; exit 1; }
+
 # Firewall configuration
 echo "Starting firewall configuration for ISP Circuit Invoice Tracker..."
 detect_firewall
 open_ports
 verify_ports
+
 echo "Firewall setup complete."
 echo "Setup complete. Log in with admin/adminpassword and change the password."
