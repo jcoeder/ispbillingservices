@@ -194,6 +194,13 @@ setup_postgres() {
     sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;" 2>/dev/null && echo "PostgreSQL database created." || echo "PostgreSQL database may already exist."
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" && echo "Privileges granted." || { echo "Failed to grant privileges."; exit 1; }
 }
+# Function to update alembic.ini with DB URI
+update_alembic_ini() {
+    ALEMBIC_INI="/opt/isp-circuit-invoice-tracker/migrations/alembic.ini"
+    if [ -f "$ALEMBIC_INI" ]; then
+        sed -i "s|# sqlalchemy.url = driver://user:pass@localhost/dbname|sqlalchemy.url = $DB_URI|" "$ALEMBIC_INI" && echo "Updated alembic.ini with DB URI." || { echo "Failed to update alembic.ini."; exit 1; }
+    fi
+}
 # Function to detect the active firewall system and check if it's running
 detect_firewall() {
     echo "Detecting active firewall system..."
@@ -324,7 +331,8 @@ pip install -r requirements.txt && echo "Requirements installation completed." |
 export FLASK_APP=app.py
 export FLASK_ENV=production  # Avoid prompts
 flask db init 2>/dev/null || echo "DB init skipped (may already exist)."
-flask db migrate -m "Initial migration" --head && flask db upgrade && echo "Database migrations completed." || { echo "Database migration failed."; exit 1; }
+update_alembic_ini
+flask db migrate -m "Initial migration" && flask db upgrade && echo "Database migrations completed." || { echo "Database migration failed."; exit 1; }
 # Create user and set permissions
 id isptracker >/dev/null 2>&1 || sudo adduser -r -s /bin/false isptracker && echo "User isptracker created successfully." || echo "User isptracker already exists."
 sudo usermod -s /bin/bash isptracker && echo "User isptracker shell updated successfully." || { echo "Failed to update user isptracker shell."; exit 1; }
