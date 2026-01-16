@@ -233,20 +233,20 @@ create_system_user() {
     esac
 }
 
-# Function to move system files to their proper locations
+# Function to move system files to their proper locations (overwrite existing)
 move_system_files() {
-    # Move systemd service file
-    sudo cp "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service file moved to /etc/systemd/system/." || { echo "Failed to move systemd service file."; exit 1; }
+    # Move systemd service file (overwrite)
+    sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service file moved to /etc/systemd/system/ (overwritten if existed)." || { echo "Failed to move systemd service file."; exit 1; }
 
-    # Move Nginx files based on system type
+    # Move Nginx files based on system type (overwrite)
     case $SYSTEM_TYPE in
         "debian")
-            sudo cp "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/sites-available/." || { echo "Failed to move Nginx config file."; exit 1; }
-            sudo ln -s /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf /etc/nginx/sites-enabled/isp-circuit-invoice-tracker.conf && echo "Nginx config symlink created in sites-enabled." || { echo "Failed to create Nginx config symlink."; exit 1; }
+            sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/sites-available/ (overwritten if existed)." || { echo "Failed to move Nginx config file."; exit 1; }
+            sudo ln -sf /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf /etc/nginx/sites-enabled/isp-circuit-invoice-tracker.conf && echo "Nginx config symlink created in sites-enabled (overwritten if existed)." || { echo "Failed to create Nginx config symlink."; exit 1; }
             ;;
         "rhel")
-            sudo cp "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/conf.d/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/conf.d/." || { echo "Failed to move Nginx config file."; exit 1; }
-            sudo cp "$SYSTEM_DIR/nginx.conf" /etc/nginx/nginx.conf && echo "Nginx main config replaced." || { echo "Failed to replace Nginx main config."; exit 1; }
+            sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/conf.d/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/conf.d/ (overwritten if existed)." || { echo "Failed to move Nginx config file."; exit 1; }
+            sudo cp -f "$SYSTEM_DIR/nginx.conf" /etc/nginx/nginx.conf && echo "Nginx main config replaced (overwritten)." || { echo "Failed to replace Nginx main config."; exit 1; }
             sudo setsebool -P httpd_can_network_connect 1 && echo "SELinux boolean set successfully." || { echo "Failed to set SELinux boolean."; exit 1; }
             ;;
         *)
@@ -397,7 +397,11 @@ export FLASK_APP="$APP_FILE"
 export FLASK_ENV=production  # Avoid prompts
 flask db init 2>/dev/null || echo "DB init skipped (may already exist)."
 update_alembic_ini
-flask db migrate -m "Initial migration" && flask db upgrade && echo "Database migrations completed." || { echo "Database migration failed."; exit 1; }
+# Check if migrations are already up to date by attempting upgrade; skip if no changes or already applied
+flask db current 2>/dev/null | grep -q "head" && echo "Database is already up to date." || {
+    flask db migrate -m "Initial migration" 2>/dev/null || echo "Migration creation skipped (may already exist)."
+    flask db upgrade && echo "Database migrations completed." || echo "Database migration failed or already up to date."
+}
 
 # Create system user
 create_system_user

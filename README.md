@@ -17,14 +17,11 @@ The application uses PostgreSQL as the backend database for robust data storage 
 
 This guide will walk you through setting up the ISP Invoice Tracker app as a non-root user named isptracker, installing it in /opt/isp-invoice-tracker, and configuring it to run as a systemd service with Nginx as a reverse proxy. Instructions are provided for both RHEL and Ubuntu systems.
 
-### Step 1: Clone the repository
+### Step 1 and 2: Clone the repository and Install dependencies and setup the environment
 ```bash
 cd /opt
 sudo git clone https://github.com/jcoeder/isp-circuit-invoice-tracker.git
-``` 
- 
-### Step 2: Install dependencies and setup the environment
-```bash
+
 cd isp-circuit-invoice-tracker
 sudo chmod +x setup.sh
 sudo ./setup.sh
