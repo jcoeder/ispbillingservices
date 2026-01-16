@@ -235,8 +235,12 @@ create_system_user() {
 
 # Function to move system files to their proper locations (overwrite existing)
 move_system_files() {
-    # Move systemd service file (overwrite)
-    sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service file moved to /etc/systemd/system/ (overwritten if existed)." || { echo "Failed to move systemd service file."; exit 1; }
+    # Move systemd service file (overwrite, skip if same file)
+    if [ "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" != "/etc/systemd/system/isp-circuit-invoice-tracker.service" ]; then
+        sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service file moved to /etc/systemd/system/ (overwritten if existed)." || { echo "Failed to move systemd service file."; exit 1; }
+    else
+        echo "Systemd service file is already in place."
+    fi
 
     # Move Nginx files based on system type (overwrite)
     case $SYSTEM_TYPE in
