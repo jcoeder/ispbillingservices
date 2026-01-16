@@ -1,11 +1,13 @@
 # app.py
-from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, session
+from flask import Flask, request, jsonify, render_template, redirect, url_for, flash, session, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from functools import wraps
 from dotenv import load_dotenv
 import os
+import pdfplumber  # For PDF text extraction
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -13,6 +15,8 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI', 'sqlite:///app.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['UPLOAD_FOLDER'] = '/opt/isp-circuit-invoice-tracker/uploads'  # Directory for uploaded PDFs
+app.config['ALLOWED_EXTENSIONS'] = {'pdf'}  # Only allow PDF uploads
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -22,6 +26,21 @@ def inject_current_user():
     if 'user_id' in session:
         return {'current_user': User.query.get(session['user_id'])}
     return {'current_user': None}
+
+# Helper function to check allowed file extensions
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+# Function to extract text from PDF
+def extract_pdf_text(filepath):
+    text = ""
+    try:
+        with pdfplumber.open(filepath) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text() or ""
+    except Exception as e:
+        print(f"Error extracting text from PDF: {e}")
+    return text
 
 # Models
 class User(db.Model):
@@ -39,24 +58,32 @@ class User(db.Model):
 class Vendor(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
-    accounts = db.relationship('Account', backref='vendor', lazy=True, cascade='all, delete-orphan')
+    billing_accounts = db.relationship('BillingAccount', backref='vendor', lazy=True, cascade='all, delete-orphan')
 
-class Account(db.Model):
+class BillingAccount(db.Model):  # Renamed from Account to BillingAccount
     id = db.Column(db.Integer, primary_key=True)
-    account_id = db.Column(db.String(100), nullable=False)  # e.g., account number
+    account_id = db.Column(db.String(100), nullable=False)  # e.g., billing account number
     vendor_id = db.Column(db.Integer, db.ForeignKey('vendor.id'), nullable=False)
-    services = db.relationship('Service', backref='account', lazy=True, cascade='all, delete-orphan')
+    services = db.relationship('Service', backref='billing_account', lazy=True, cascade='all, delete-orphan')
+    invoices = db.relationship('Invoice', backref='billing_account', lazy=True, cascade='all, delete-orphan')
 
 class Service(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
-    type = db.Column(db.Enum('phone', 'sip', 'internet', 'wan', name='service_type'), nullable=False)
+    billing_account_id = db.Column(db.Integer, db.ForeignKey('billing_account.id'), nullable=False)
     service_id = db.Column(db.String(100), nullable=True)
     phone_number = db.Column(db.String(20), nullable=True)
     a_location = db.Column(db.String(200), nullable=True)  # A location, optional
     z_location = db.Column(db.String(200), nullable=True)  # Z location, optional
-    account_number = db.Column(db.String(100), nullable=True)  # Defaults to account.account_id, editable
-    description = db.Column(db.Text, nullable=True)
+    account_number = db.Column(db.String(100), nullable=True)  # Defaults to billing_account.account_id, editable
+    description = db.Column(db.Text, nullable=True)  # Now the first column in displays
+
+class Invoice(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    billing_account_id = db.Column(db.Integer, db.ForeignKey('billing_account.id'), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    filepath = db.Column(db.String(500), nullable=False)
+    parsed_text = db.Column(db.Text, nullable=True)  # Extracted text for searching
+    uploaded_at = db.Column(db.DateTime, default=db.func.now())
 
 # Seed initial admin on app startup (runs after models are defined)
 def seed_admin():
@@ -137,37 +164,35 @@ def manage_vendors():
     vendors = Vendor.query.all()
     return render_template('vendors.html', vendors=vendors)
 
-@app.route('/vendors/<int:vendor_id>/accounts', methods=['GET', 'POST'])
-def manage_accounts(vendor_id):
+@app.route('/vendors/<int:vendor_id>/billing_accounts', methods=['GET', 'POST'])  # Updated route name
+def manage_billing_accounts(vendor_id):
     if 'user_id' not in session:
         return redirect(url_for('login'))
     vendor = Vendor.query.get_or_404(vendor_id)
     if request.method == 'POST':
         account_id = request.form['account_id']
-        account = Account(account_id=account_id, vendor_id=vendor_id)
-        db.session.add(account)
+        billing_account = BillingAccount(account_id=account_id, vendor_id=vendor_id)
+        db.session.add(billing_account)
         db.session.commit()
-        flash('Account added.')
-        return redirect(url_for('manage_accounts', vendor_id=vendor_id))
-    accounts = Account.query.filter_by(vendor_id=vendor_id).all()
-    return render_template('accounts.html', vendor=vendor, accounts=accounts)
+        flash('Billing account added.')
+        return redirect(url_for('manage_billing_accounts', vendor_id=vendor_id))
+    billing_accounts = BillingAccount.query.filter_by(vendor_id=vendor_id).all()
+    return render_template('billing_accounts.html', vendor=vendor, billing_accounts=billing_accounts)
 
-@app.route('/accounts/<int:account_id>/services', methods=['GET', 'POST'])
-def manage_services(account_id):
+@app.route('/billing_accounts/<int:billing_account_id>/services', methods=['GET', 'POST'])  # Updated route
+def manage_services(billing_account_id):
     if 'user_id' not in session:
         return redirect(url_for('login'))
-    account = Account.query.get_or_404(account_id)
+    billing_account = BillingAccount.query.get_or_404(billing_account_id)
     if request.method == 'POST':
-        type_ = request.form['type']
         service_id = request.form.get('service_id')
         phone_number = request.form.get('phone_number')
         a_location = request.form.get('a_location')
         z_location = request.form.get('z_location')
-        account_number = request.form.get('account_number') or account.account_id  # Default to account's account_id
+        account_number = request.form.get('account_number') or billing_account.account_id
         description = request.form.get('description')
         service = Service(
-            account_id=account_id,
-            type=type_,
+            billing_account_id=billing_account_id,
             service_id=service_id,
             phone_number=phone_number,
             a_location=a_location,
@@ -178,22 +203,21 @@ def manage_services(account_id):
         db.session.add(service)
         db.session.commit()
         flash('Service added.')
-        return redirect(url_for('manage_services', account_id=account_id))
-    services = Service.query.filter_by(account_id=account_id).all()
-    return render_template('services.html', account=account, services=services)
+        return redirect(url_for('manage_services', billing_account_id=billing_account_id))
+    services = Service.query.filter_by(billing_account_id=billing_account_id).all()
+    return render_template('services.html', billing_account=billing_account, services=services)
 
 @app.route('/vendors/<int:vendor_id>/all_services')
 def all_services(vendor_id):
     if 'user_id' not in session:
         return redirect(url_for('login'))
     vendor = Vendor.query.get_or_404(vendor_id)
-    # Get all services for accounts under this vendor
-    services = Service.query.join(Account).filter(Account.vendor_id == vendor_id).all()
-    accounts = Account.query.filter_by(vendor_id=vendor_id).all()  # For filtering dropdown
-    selected_account_id = request.args.get('account_id', type=int)
-    if selected_account_id:
-        services = [s for s in services if s.account_id == selected_account_id]
-    return render_template('all_services.html', vendor=vendor, services=services, accounts=accounts, selected_account_id=selected_account_id)
+    services = Service.query.join(BillingAccount).filter(BillingAccount.vendor_id == vendor_id).all()
+    billing_accounts = BillingAccount.query.filter_by(vendor_id=vendor_id).all()
+    selected_billing_account_id = request.args.get('billing_account_id', type=int)
+    if selected_billing_account_id:
+        services = [s for s in services if s.billing_account_id == selected_billing_account_id]
+    return render_template('all_services.html', vendor=vendor, services=services, billing_accounts=billing_accounts, selected_billing_account_id=selected_billing_account_id)
 
 @app.route('/services/<int:service_id>/edit', methods=['GET', 'POST'])
 def edit_service(service_id):
@@ -201,7 +225,6 @@ def edit_service(service_id):
         return redirect(url_for('login'))
     service = Service.query.get_or_404(service_id)
     if request.method == 'POST':
-        service.type = request.form['type']
         service.service_id = request.form.get('service_id')
         service.phone_number = request.form.get('phone_number')
         service.a_location = request.form.get('a_location')
@@ -210,7 +233,7 @@ def edit_service(service_id):
         service.description = request.form.get('description')
         db.session.commit()
         flash('Service updated.')
-        return redirect(url_for('manage_services', account_id=service.account_id))
+        return redirect(url_for('manage_services', billing_account_id=service.billing_account_id))
     return render_template('edit_service.html', service=service)
 
 @app.route('/services/<int:service_id>/delete', methods=['POST'])
@@ -221,7 +244,52 @@ def delete_service(service_id):
     db.session.delete(service)
     db.session.commit()
     flash('Service deleted.')
-    return redirect(url_for('manage_services', account_id=service.account_id))
+    return redirect(url_for('manage_services', billing_account_id=service.billing_account_id))
+
+@app.route('/billing_accounts/<int:billing_account_id>/invoices', methods=['GET', 'POST'])
+def manage_invoices(billing_account_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    billing_account = BillingAccount.query.get_or_404(billing_account_id)
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            flash('No file part')
+            return redirect(request.url)
+        file = request.files['file']
+        if file.filename == '':
+            flash('No selected file')
+            return redirect(request.url)
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+            parsed_text = extract_pdf_text(filepath)
+            invoice = Invoice(
+                billing_account_id=billing_account_id,
+                filename=filename,
+                filepath=filepath,
+                parsed_text=parsed_text
+            )
+            db.session.add(invoice)
+            db.session.commit()
+            flash('Invoice uploaded and processed.')
+            return redirect(url_for('manage_invoices', billing_account_id=billing_account_id))
+    invoices = Invoice.query.filter_by(billing_account_id=billing_account_id).all()
+    return render_template('invoices.html', billing_account=billing_account, invoices=invoices)
+
+@app.route('/search', methods=['GET', 'POST'])
+def search_invoices():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    query = request.args.get('q', '')
+    results = []
+    if query:
+        results = Invoice.query.filter(Invoice.parsed_text.ilike(f'%{query}%')).all()
+    return render_template('search.html', query=query, results=results)
+
+@app.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 if __name__ == '__main__':
     app.run(debug=True)
