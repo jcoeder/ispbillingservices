@@ -233,6 +233,29 @@ create_system_user() {
     esac
 }
 
+# Function to move system files to their proper locations
+move_system_files() {
+    # Move systemd service file
+    sudo cp "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service file moved to /etc/systemd/system/." || { echo "Failed to move systemd service file."; exit 1; }
+
+    # Move Nginx files based on system type
+    case $SYSTEM_TYPE in
+        "debian")
+            sudo cp "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/sites-available/." || { echo "Failed to move Nginx config file."; exit 1; }
+            sudo ln -s /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf /etc/nginx/sites-enabled/isp-circuit-invoice-tracker.conf && echo "Nginx config symlink created in sites-enabled." || { echo "Failed to create Nginx config symlink."; exit 1; }
+            ;;
+        "rhel")
+            sudo cp "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/conf.d/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/conf.d/." || { echo "Failed to move Nginx config file."; exit 1; }
+            sudo cp "$SYSTEM_DIR/nginx.conf" /etc/nginx/nginx.conf && echo "Nginx main config replaced." || { echo "Failed to replace Nginx main config."; exit 1; }
+            sudo setsebool -P httpd_can_network_connect 1 && echo "SELinux boolean set successfully." || { echo "Failed to set SELinux boolean."; exit 1; }
+            ;;
+        *)
+            echo "Unsupported system type for moving files."
+            exit 1
+            ;;
+    esac
+}
+
 # Function to detect the active firewall system and check if it's running
 detect_firewall() {
     echo "Detecting active firewall system..."
@@ -385,8 +408,10 @@ sudo chown -R isptracker:isptracker "$APP_DIR" && echo "Permissions set for $APP
 # Copy configuration files before starting the service
 copy_config_files
 
-# Create symlink for systemd service
-sudo ln -s "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service symlink created successfully." || { echo "Failed to create systemd service symlink."; exit 1; }
+# Move system files to their proper locations
+move_system_files
+
+# Reload systemd and enable/start the service
 sudo systemctl daemon-reload && echo "Systemd daemon reloaded successfully." || { echo "Failed to reload systemd daemon."; exit 1; }
 sudo systemctl enable --now isp-circuit-invoice-tracker && echo "Systemd service enabled and started successfully." || { echo "Failed to enable and start systemd service."; exit 1; }
 sudo systemctl status isp-circuit-invoice-tracker >/dev/null 2>&1 & wait $! && echo "Systemd service status checked successfully in background." || echo "Failed to check systemd service status in background."
@@ -395,23 +420,6 @@ sudo systemctl status isp-circuit-invoice-tracker >/dev/null 2>&1 & wait $! && e
 sudo mkdir -p /etc/ssl/private && echo "SSL private directory created successfully." || { echo "Failed to create SSL private directory."; exit 1; }
 sudo chmod 700 /etc/ssl/private && echo "SSL private directory permissions set successfully." || { echo "Failed to set SSL private directory permissions."; exit 1; }
 sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/isp-circuit-invoice-tracker.key -out /etc/ssl/certs/isp-circuit-invoice-tracker.crt -batch && echo "SSL certificates generated successfully." || { echo "Failed to generate SSL certificates."; exit 1; }
-
-# Configure Nginx based on system type
-case $SYSTEM_TYPE in
-    "debian")
-        sudo ln -s "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/sites-available/isp-circuit-invoice-tracker && echo "Nginx config symlink created in sites-available successfully." || { echo "Failed to create Nginx config symlink in sites-available."; exit 1; }
-        sudo ln -s /etc/nginx/sites-available/isp-circuit-invoice-tracker /etc/nginx/sites-enabled/ && echo "Nginx config symlink enabled in sites-enabled successfully." || { echo "Failed to enable Nginx config symlink in sites-enabled."; exit 1; }
-        ;;
-    "rhel")
-        sudo ln -s "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/conf.d/isp-circuit-invoice-tracker.conf && echo "Nginx config symlink created in conf.d successfully." || { echo "Failed to create Nginx config symlink in conf.d."; exit 1; }
-        sudo cp "$SYSTEM_DIR/nginx.conf" /etc/nginx/nginx.conf && echo "Nginx main config copied successfully." || { echo "Failed to copy Nginx main config."; exit 1; }
-        sudo setsebool -P httpd_can_network_connect 1 && echo "SELinux boolean set successfully." || { echo "Failed to set SELinux boolean."; exit 1; }
-        ;;
-    *)
-        echo "Unsupported system type. Please configure Nginx manually."
-        exit 1
-        ;;
-esac
 
 # Test and apply Nginx configuration
 sudo nginx -t && echo "Nginx configuration test passed." || { echo "Nginx configuration test failed."; exit 1; }
