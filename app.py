@@ -17,6 +17,18 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
+# Seed initial admin on app startup (runs when app is imported)
+with app.app_context():
+    db.create_all()
+    if not User.query.filter_by(username='admin').first():
+        admin_password = os.environ.get('ADMIN_PASSWORD', 'adminpassword')
+        admin = User(username='admin', is_admin=True)
+        admin.set_password(admin_password)
+        db.session.add(admin)
+        db.session.commit()
+        print(f"Admin user created with password: {admin_password}")
+        print("Please change the default password after first login!")
+
 @app.context_processor
 def inject_current_user():
     if 'user_id' in session:
@@ -208,19 +220,5 @@ def delete_service(service_id):
     flash('Service deleted.')
     return redirect(url_for('manage_services', account_id=service.account_id))
 
-# Seed initial admin
-def seed_admin():
-    if not User.query.filter_by(username='admin').first():
-        admin_password = os.environ.get('ADMIN_PASSWORD', 'adminpassword')
-        admin = User(username='admin', is_admin=True)
-        admin.set_password(admin_password)
-        db.session.add(admin)
-        db.session.commit()
-        print(f"Admin user created with password: {admin_password}")
-        print("Please change the default password after first login!")
-
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        seed_admin()
     app.run(debug=True)
