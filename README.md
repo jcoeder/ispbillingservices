@@ -20,7 +20,7 @@ This guide will walk you through setting up the ISP Invoice Tracker app as a non
 ### Step 1: Clone the repository
 ```bash
 cd /opt
-git clone https://github.com/jcoeder/isp-invoice-tracker.git
+git clone https://github.com/jcoeder/isp-circuit-invoice-tracker.git
 ``` 
  
 ### Step 2: Install dependencies and setup the environment
