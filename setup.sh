@@ -235,14 +235,11 @@ create_system_user() {
 
 # Function to move system files to their proper locations (overwrite existing)
 move_system_files() {
-    # Move systemd service file (overwrite, skip if same file)
-    if [ "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" != "/etc/systemd/system/isp-circuit-invoice-tracker.service" ]; then
-        sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service file moved to /etc/systemd/system/ (overwritten if existed)." || { echo "Failed to move systemd service file."; exit 1; }
-    else
-        echo "Systemd service file is already in place."
-    fi
+    # Move systemd service file (remove existing to avoid same file error, then copy)
+    sudo rm -f /etc/systemd/system/isp-circuit-invoice-tracker.service
+    sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service file moved to /etc/systemd/system/ (overwritten if existed)." || { echo "Failed to move systemd service file."; exit 1; }
 
-    # Move Nginx files based on system type (overwrite)
+    # Move Nginx files based on system type (overwrite, remove existing if same)
     case $SYSTEM_TYPE in
         "debian")
             sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/sites-available/ (overwritten if existed)." || { echo "Failed to move Nginx config file."; exit 1; }
