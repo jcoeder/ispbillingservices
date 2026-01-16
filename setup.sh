@@ -1,152 +1,39 @@
 #!/bin/bash
+# setup.sh - Production Setup Script for ISP Billing Services
+# Assumptions:
+# 1. Git clone this repo to /opt/ispbillingservices: git clone <repo> /opt/ispbillingservices
+# 2. Run as root or with sudo: sudo ./setup.sh
+# 3. Supports Debian/Ubuntu (apt), RHEL/Fedora (dnf/yum).
+# 4. Sets up: venv, Nginx (reverse proxy), systemd service, self-signed SSL, firewall ports 80/443.
+# 5. Creates system user 'ispbillingservices', admin user (admin/admin).
 
-# Configuration Variables
-APP_DIR="/opt/isp-circuit-invoice-tracker"
-DB_USER="isptracker"
-DB_PASS="changeme"  # Change this to a secure password
-DB_NAME="isptracker_db"
-DB_URI="postgresql://$DB_USER:$DB_PASS@localhost/$DB_NAME"
-ENV_FILE="$APP_DIR/.env"
-APP_FILE="$APP_DIR/app.py"
-ALEMBIC_INI="$APP_DIR/migrations/alembic.ini"
-SYSTEM_DIR="$APP_DIR/system_files"
-SECRET_KEY=""  # Will be generated later
-PACKAGE_MANAGER=""
-SYSTEM_TYPE=""
-FIREWALL=""
-FIREWALL_RUNNING=""
-CLEAR_DB=false
+set -e  # Exit on error
+
+PROJECT_PATH="/opt/ispbillingservices"
+VENV_PATH="$PROJECT_PATH/venv"
 
 # Function to generate a secure Flask secret key
 generate_secret_key() {
-    python3 -c "import secrets; print(secrets.token_urlsafe(32))" > /tmp/secret_key.txt
+    python3 -c "import secrets; print(secrets.token_urlsafe(50))" > /tmp/secret_key.txt
     if [ -s /tmp/secret_key.txt ]; then
         SECRET_KEY=$(cat /tmp/secret_key.txt)
-        echo "Generated Flask secret key successfully."
+        rm -f /tmp/secret_key.txt
+        echo "✅ Generated Flask secret key."
     else
-        echo "Failed to generate Flask secret key."
+        echo "❌ Failed to generate Flask secret key."
         exit 1
     fi
 }
 
-# Function to create .env file with secret key and DB URI
-create_env_file() {
-    echo "SECRET_KEY=$SECRET_KEY" > "$ENV_FILE"
-    echo "SQLALCHEMY_DATABASE_URI=$DB_URI" >> "$ENV_FILE"
-    echo ".env file created successfully at $ENV_FILE."
-}
-
-# Function to create system_files directory and necessary files
-create_system_files() {
-    mkdir -p "$SYSTEM_DIR" && echo "system_files directory created." || { echo "Failed to create system_files directory."; exit 1; }
-
-    # Create isp-circuit-invoice-tracker.service (updated to use gunicorn.conf.py)
-    cat > "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" << EOF
-[Unit]
-Description=ISP Circuit Invoice Tracker Flask App
-After=network.target
-
-[Service]
-User=isptracker
-Group=isptracker
-WorkingDirectory=$APP_DIR
-Environment="PATH=$APP_DIR/venv/bin"
-ExecStart=$APP_DIR/venv/bin/gunicorn --config $APP_DIR/gunicorn.conf.py app:app
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    echo "Systemd service file created."
-
-    # Create isp-circuit-invoice-tracker.conf for Nginx (use server_name _ to avoid conflicts)
-    cat > "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" << EOF
-server {
-    listen 80;
-    server_name _;  # Use _ to catch all unmatched names and avoid conflicts
-
-    location = /favicon.ico { access_log off; log_not_found off; }
-    location /static {
-        alias $APP_DIR/static;  # Adjust if you have static files
-    }
-
-    location / {
-        include proxy_params;
-        proxy_pass http://unix:/tmp/isp-circuit-invoice-tracker.sock;
-    }
-}
-EOF
-    echo "Nginx config file created."
-
-    # Create nginx.conf for RHEL (optional, only if needed)
-    cat > "$SYSTEM_DIR/nginx.conf" << EOF
-user nginx;
-worker_processes auto;
-error_log /var/log/nginx/error.log;
-pid /run/nginx.pid;
-
-include /usr/share/nginx/modules/*.conf;
-
-events {
-    worker_connections 1024;
-}
-
-http {
-    log_format  main  '\$remote_addr - \$remote_user [\$time_local] "\$request" '
-                      '\$status \$body_bytes_sent "\$http_referer" '
-                      '"\$http_user_agent" "\$http_x_forwarded_for"';
-
-    access_log  /var/log/nginx/access.log  main;
-
-    sendfile            on;
-    tcp_nopush          on;
-    tcp_nodelay         on;
-    keepalive_timeout   65;
-    types_hash_max_size 2048;
-
-    include             /etc/nginx/mime.types;
-    default_type        application/octet-stream;
-
-    include /etc/nginx/conf.d/*.conf;
-}
-EOF
-    echo "Nginx main config file created for RHEL."
-
-    # Create gunicorn.conf.py
-    cat > "$APP_DIR/gunicorn.conf.py" << EOF
-# gunicorn.conf.py - Configuration for Gunicorn
-
-# Bind to Unix socket (matches systemd service)
-bind = 'unix:/tmp/isp-circuit-invoice-tracker.sock'
-
-# Number of worker processes (adjust based on CPU cores)
-workers = 3
-
-# Worker type (sync is fine for most apps; use gevent for async if needed)
-worker_class = 'sync'
-
-# Permissions for the socket (007 means owner: rwx, group: none, others: none)
-umask = 0o007
-
-# Logging
-loglevel = 'info'
-accesslog = '-'
-errorlog = '-'
-
-# Timeout for workers (increase if your app has long-running requests)
-timeout = 30
-
-# Max requests per worker before restart (prevents memory leaks)
-max_requests = 1000
-max_requests_jitter = 50
-EOF
-    echo "Gunicorn config file created at $APP_DIR/gunicorn.conf.py."
-}
-
-# Function to check and copy configuration files (if any, e.g., sample configs)
-copy_config_files() {
-    # Assuming no specific config files like in BGP example; add if needed
-    echo "No config files to copy for this app."
+# Function to update config.py with the generated secret key
+update_config() {
+    CONFIG_FILE="$PROJECT_PATH/config.py"
+    if [ -f "$CONFIG_FILE" ]; then
+        sudo sed -i "s|SECRET_KEY = .*|SECRET_KEY = '$SECRET_KEY'|" "$CONFIG_FILE" && echo "✅ Updated config.py with new secret key." || { echo "❌ Failed to update config.py."; exit 1; }
+    else
+        echo "❌ config.py not found at $CONFIG_FILE."
+        exit 1
+    fi
 }
 
 # Function to detect the package manager
@@ -154,315 +41,219 @@ detect_package_manager() {
     if command -v apt >/dev/null 2>&1; then
         PACKAGE_MANAGER="apt"
         SYSTEM_TYPE="debian"
-        echo "Detected apt package manager (Debian/Ubuntu-based system)."
+        echo "✅ Detected apt (Debian/Ubuntu)."
     elif command -v dnf >/dev/null 2>&1; then
         PACKAGE_MANAGER="dnf"
         SYSTEM_TYPE="rhel"
-        echo "Detected dnf package manager (RHEL/Fedora-based system)."
+        echo "✅ Detected dnf (RHEL/Fedora)."
     elif command -v yum >/dev/null 2>&1; then
         PACKAGE_MANAGER="yum"
         SYSTEM_TYPE="rhel"
-        echo "Detected yum package manager (Older RHEL/CentOS-based system)."
+        echo "✅ Detected yum (RHEL/CentOS)."
     else
-        echo "Cannot detect a supported package manager (apt, dnf, or yum). Please install dependencies manually."
+        echo "❌ Unsupported package manager. Install deps manually."
         exit 1
     fi
 }
 
-# Function to install dependencies based on package manager, including PostgreSQL 16
+# Function to install system dependencies
 install_dependencies() {
     case $PACKAGE_MANAGER in
         "apt")
-            # Add PostgreSQL 16 repo
-            wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add - || { echo "Failed to add PostgreSQL key."; exit 1; }
-            sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' || { echo "Failed to add PostgreSQL repo."; exit 1; }
-            sudo apt update && echo "Apt update completed." || { echo "Apt update failed."; exit 1; }
-            sudo apt install -y python3 python3-venv python3-dev git nginx postgresql-16 postgresql-contrib-16 && echo "Apt package installation completed." || { echo "Apt package installation failed."; exit 1; }
-            sudo systemctl enable postgresql nginx && echo "PostgreSQL and Nginx enabled at startup." || { echo "Failed to enable services."; exit 1; }
-            sudo systemctl start postgresql nginx && echo "PostgreSQL and Nginx started successfully." || { echo "Failed to start services."; exit 1; }
+            sudo apt update
+            sudo apt install -y python3 python3-venv python3-dev python3-pip nginx supervisor
+            sudo systemctl enable nginx supervisor
+            sudo systemctl start nginx supervisor
             ;;
         "dnf")
-            # Enable and install PostgreSQL 16
-            sudo dnf module enable postgresql:16 -y && echo "PostgreSQL 16 module enabled." || { echo "Failed to enable PostgreSQL 16 module."; exit 1; }
-            sudo dnf install -y python3 python3-devel git nginx postgresql16 postgresql16-server postgresql16-contrib && echo "Dnf package installation completed." || { echo "Dnf package installation failed."; exit 1; }
-            sudo dnf install -y python3-pip python3-venv && echo "Dnf python3-pip and venv installation completed." || echo "python3-pip or venv not available, assuming included in python3."
-            sudo postgresql-16-setup --initdb && echo "PostgreSQL 16 initialized." || { echo "Failed to initialize PostgreSQL 16."; exit 1; }
-            sudo systemctl enable postgresql nginx && echo "PostgreSQL and Nginx enabled at startup." || { echo "Failed to enable services."; exit 1; }
-            sudo systemctl start postgresql nginx && echo "PostgreSQL and Nginx started successfully." || { echo "Failed to start services."; exit 1; }
+            sudo dnf install -y python3 python3-pip python3-devel nginx
+            sudo dnf install -y python3-virtualenv || echo "Virtualenv optional."
+            sudo dnf install -y epel-release
+            sudo systemctl enable nginx
+            sudo systemctl start nginx
+            sudo setsebool -P httpd_can_network_connect 1 2>/dev/null || true
             ;;
         "yum")
-            # Enable and install PostgreSQL 16
-            sudo yum module enable postgresql:16 -y && echo "PostgreSQL 16 module enabled." || { echo "Failed to enable PostgreSQL 16 module."; exit 1; }
-            sudo yum install -y python3 python3-devel git nginx postgresql16 postgresql16-server postgresql16-contrib && echo "Yum package installation completed." || { echo "Yum package installation failed."; exit 1; }
-            sudo yum install -y python3-pip python3-venv && echo "Yum python3-pip and venv installation completed." || echo "python3-pip or venv not available, assuming included in python3."
-            sudo postgresql-16-setup initdb && echo "PostgreSQL 16 initialized." || { echo "Failed to initialize PostgreSQL 16."; exit 1; }
-            sudo systemctl enable postgresql nginx && echo "PostgreSQL and Nginx enabled at startup." || { echo "Failed to enable services."; exit 1; }
-            sudo systemctl start postgresql nginx && echo "PostgreSQL and Nginx started successfully." || { echo "Failed to start services."; exit 1; }
-            ;;
-        *)
-            echo "Unsupported package manager. Please install dependencies manually."
-            exit 1
+            sudo yum install -y python3 python3-pip python3-devel nginx
+            sudo yum install -y python3-virtualenv || echo "Virtualenv optional."
+            sudo yum install -y epel-release
+            sudo systemctl enable nginx
+            sudo systemctl start nginx
+            sudo setsebool -P httpd_can_network_connect 1 2>/dev/null || true
             ;;
     esac
+    echo "✅ System dependencies installed."
 }
 
-# Function to clear database (drop DB, user, and permissions)
-clear_database() {
-    # Revoke all privileges from the user on the database and globally
-    sudo -u postgres psql -c "REVOKE ALL ON DATABASE $DB_NAME FROM $DB_USER;" 2>/dev/null || echo "No privileges to revoke on database."
-    sudo -u postgres psql -c "REVOKE ALL PRIVILEGES ON SCHEMA public FROM $DB_USER;" 2>/dev/null || echo "No privileges to revoke on schema."
-    sudo -u postgres psql -c "ALTER DATABASE $DB_NAME OWNER TO postgres;" 2>/dev/null || echo "Failed to change DB owner."
-    sudo -u postgres psql -c "DROP DATABASE IF EXISTS $DB_NAME;" 2>/dev/null && echo "Database $DB_NAME dropped." || echo "Database $DB_NAME not found or failed to drop."
-    sudo -u postgres psql -c "DROP USER IF EXISTS $DB_USER;" 2>/dev/null && echo "User $DB_USER dropped." || echo "User $DB_USER not found or failed to drop."
-    echo "Database and user cleared."
+# Function to setup venv and pip requirements
+setup_venv() {
+    cd "$PROJECT_PATH"
+    python3 -m venv "$VENV_PATH"
+    source "$VENV_PATH/bin/activate"
+    pip install --upgrade pip
+    pip install -r requirements.txt
+    deactivate
+    echo "✅ Virtualenv and requirements installed."
 }
 
-# Function to setup PostgreSQL database and user
-setup_postgres() {
-    sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';" 2>/dev/null && echo "PostgreSQL user created." || echo "PostgreSQL user may already exist."
-    sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;" 2>/dev/null && echo "PostgreSQL database created." || echo "PostgreSQL database may already exist."
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" && echo "Privileges granted." || { echo "Failed to grant privileges."; exit 1; }
+# Create system user and set permissions
+setup_user() {
+    id ispbillingservices >/dev/null 2>&1 || sudo adduser --system --group --shell /bin/bash ispbillingservices
+    sudo chown -R ispbillingservices:ispbillingservices "$PROJECT_PATH"
+    echo "✅ User 'ispbillingservices' setup."
 }
 
-# Function to update alembic.ini with DB URI
-update_alembic_ini() {
-    if [ -f "$ALEMBIC_INI" ]; then
-        sed -i "s|# sqlalchemy.url = driver://user:pass@localhost/dbname|sqlalchemy.url = $DB_URI|" "$ALEMBIC_INI" && echo "Updated alembic.ini with DB URI." || { echo "Failed to update alembic.ini."; exit 1; }
+# Create systemd service file
+create_systemd_service() {
+    cat > "$PROJECT_PATH/system_files/ispbillingservices.service" << EOF
+[Unit]
+Description=ISP Billing Services Flask App
+After=network.target
+
+[Service]
+User=ispbillingservices
+Group=ispbillingservices
+WorkingDirectory=$PROJECT_PATH
+Environment=PATH=$VENV_PATH/bin
+ExecStart=$VENV_PATH/bin/gunicorn -b 127.0.0.1:5000 run:app
+ExecReload=/bin/kill -s HUP \$MAINPID
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    sudo cp "$PROJECT_PATH/system_files/ispbillingservices.service" /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable ispbillingservices
+    sudo systemctl start ispbillingservices
+    echo "✅ Systemd service created and started."
+}
+
+# Create Nginx config
+create_nginx_config() {
+    sudo mkdir -p /etc/nginx/{sites-available,sites-enabled,conf.d}
+    cat > "$PROJECT_PATH/system_files/nginx/ispbillingservices.conf" << 'EOF'
+server {
+    listen 80;
+    server_name _;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name _;
+
+    ssl_certificate /etc/ssl/certs/ispbillingservices.crt;
+    ssl_certificate_key /etc/ssl/private/ispbillingservices.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+EOF
+    if [ "$SYSTEM_TYPE" = "debian" ]; then
+        sudo ln -sf "$PROJECT_PATH/system_files/nginx/ispbillingservices.conf" /etc/nginx/sites-available/ispbillingservices
+        sudo ln -sf /etc/nginx/sites-available/ispbillingservices /etc/nginx/sites-enabled/
+        sudo rm -f /etc/nginx/sites-enabled/default
+    else
+        sudo cp "$PROJECT_PATH/system_files/nginx/ispbillingservices.conf" /etc/nginx/conf.d/ispbillingservices.conf
     fi
+    sudo nginx -t && sudo systemctl reload nginx
+    echo "✅ Nginx configured and reloaded."
 }
 
-# Function to create the system user based on system type
-create_system_user() {
-    case $SYSTEM_TYPE in
-        "debian")
-            sudo groupadd -r isptracker 2>/dev/null || echo "Group isptracker already exists."
-            sudo adduser --system --shell /bin/false --ingroup isptracker isptracker 2>/dev/null && echo "System user isptracker created (Debian)." || echo "User isptracker already exists."
-            ;;
-        "rhel")
-            sudo useradd -r -s /bin/false isptracker && echo "System user isptracker created (RHEL)." || echo "Failed to create system user."
-            ;;
-        *)
-            echo "Unsupported system type for user creation."
-            exit 1
-            ;;
-    esac
+# Generate self-signed SSL certs
+setup_ssl() {
+    sudo mkdir -p /etc/ssl/private /etc/ssl/certs
+    sudo chmod 700 /etc/ssl/private
+    sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout /etc/ssl/private/ispbillingservices.key \
+        -out /etc/ssl/certs/ispbillingservices.crt \
+        -subj "/C=US/ST=State/L=City/O=ISP Billing Services/CN=ispbillingservices.local"
+    echo "✅ SSL self-signed certs generated (valid 1 year)."
 }
 
-# Function to move system files to their proper locations (overwrite existing)
-move_system_files() {
-    # Move systemd service file (remove existing to avoid same file error, then copy)
-    sudo rm -f /etc/systemd/system/isp-circuit-invoice-tracker.service
-    sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" /etc/systemd/system/isp-circuit-invoice-tracker.service && echo "Systemd service file moved to /etc/systemd/system/ (overwritten if existed)." || { echo "Failed to move systemd service file."; exit 1; }
-
-    # Move Nginx files based on system type (overwrite, remove existing if same)
-    case $SYSTEM_TYPE in
-        "debian")
-            sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/sites-available/ (overwritten if existed)." || { echo "Failed to move Nginx config file."; exit 1; }
-            sudo ln -sf /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf /etc/nginx/sites-enabled/isp-circuit-invoice-tracker.conf && echo "Nginx config symlink created in sites-enabled (overwritten if existed)." || { echo "Failed to create Nginx config symlink."; exit 1; }
-            # Disable default nginx site to avoid conflicts
-            sudo rm -f /etc/nginx/sites-enabled/default && echo "Default nginx site disabled." || echo "Default nginx site not found or already disabled."
-            ;;
-        "rhel")
-            sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/conf.d/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/conf.d/ (overwritten if existed)." || { echo "Failed to move Nginx config file."; exit 1; }
-            sudo cp -f "$SYSTEM_DIR/nginx.conf" /etc/nginx/nginx.conf && echo "Nginx main config replaced (overwritten)." || { echo "Failed to replace Nginx main config."; exit 1; }
-            # Disable default nginx site (RHEL equivalent)
-            sudo rm -f /etc/nginx/conf.d/default.conf && echo "Default nginx conf.d site disabled." || echo "Default nginx conf.d site not found or already disabled."
-            sudo setsebool -P httpd_can_network_connect 1 && echo "SELinux boolean set successfully." || { echo "Failed to set SELinux boolean."; exit 1; }
-            # Additional SELinux for Unix socket
-            sudo chcon -t httpd_sys_rw_content_t /tmp/isp-circuit-invoice-tracker.sock 2>/dev/null || echo "SELinux context for socket set (or not needed)."
-            sudo restorecon -v /tmp/isp-circuit-invoice-tracker.sock 2>/dev/null || echo "restorecon on socket (or not needed)."
-            ;;
-        *)
-            echo "Unsupported system type for moving files."
-            exit 1
-            ;;
-    esac
-}
-
-# Function to detect the active firewall system and check if it's running
+# Detect and configure firewall
 detect_firewall() {
-    echo "Detecting active firewall system..."
-    if command -v firewall-cmd >/dev/null 2>&1; then
-        if systemctl is-active --quiet firewalld; then
-            FIREWALL="firewalld"
-            FIREWALL_RUNNING="yes"
-            echo "Detected firewalld as the active firewall and it is running."
-        else
-            FIREWALL="firewalld"
-            FIREWALL_RUNNING="no"
-            echo "Detected firewalld installed, but it is not running."
-        fi
-    elif command -v ufw >/dev/null 2>&1; then
-        if ufw status 2>/dev/null | grep -q "active"; then
-            FIREWALL="ufw"
-            FIREWALL_RUNNING="yes"
-            echo "Detected ufw as the active firewall and it is running."
-        else
-            FIREWALL="ufw"
-            FIREWALL_RUNNING="no"
-            echo "Detected ufw installed, but it is not running or inactive."
-        fi
+    if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+        FIREWALL="firewalld"
+    elif command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+        FIREWALL="ufw"
     elif command -v iptables >/dev/null 2>&1; then
-        if iptables -L -n 2>/dev/null | grep -q "Chain"; then
-            FIREWALL="iptables"
-            FIREWALL_RUNNING="yes"
-            echo "Detected iptables as the active firewall and it appears to be in use."
-        else
-            FIREWALL="iptables"
-            FIREWALL_RUNNING="no"
-            echo "Detected iptables installed, but no active rules or chains found."
-        fi
+        FIREWALL="iptables"
     else
         FIREWALL="none"
-        FIREWALL_RUNNING="no"
-        echo "No supported firewall (firewalld, ufw, or iptables) detected. Assuming no firewall is configured or running."
     fi
+    echo "✅ Detected firewall: $FIREWALL"
 }
 
-# Function to open ports 80 and 443 based on the detected firewall and if it's running
-open_ports() {
-    if [ "$FIREWALL_RUNNING" == "no" ]; then
-        echo "Firewall $FIREWALL is not running. Skipping port opening. Ensure ports 80 and 443 are accessible if a firewall is enabled later."
+open_firewall_ports() {
+    if [ "$FIREWALL" = "none" ]; then
+        echo "ℹ️ No firewall detected. Ensure ports 80/443 open manually."
         return
     fi
     case $FIREWALL in
         "firewalld")
-            echo "Opening ports 80 and 443 using firewalld..."
-            sudo firewall-cmd --permanent --add-port=80/tcp && sudo firewall-cmd --permanent --add-port=443/tcp && sudo firewall-cmd --reload && echo "Ports 80 and 443 opened successfully with firewalld." || { echo "Failed to open ports with firewalld."; exit 1; }
+            sudo firewall-cmd --permanent --add-service=http --add-service=https
+            sudo firewall-cmd --reload
             ;;
         "ufw")
-            echo "Opening ports 80 and 443 using ufw..."
-            sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && echo "Ports 80 and 443 opened successfully with ufw." || { echo "Failed to open ports with ufw."; exit 1; }
+            sudo ufw allow 'Nginx Full'
             ;;
         "iptables")
-            echo "Opening ports 80 and 443 using iptables..."
-            sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT && sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT && echo "Ports 80 and 443 opened successfully with iptables." || { echo "Failed to open ports with iptables."; exit 1; }
-            if command -v iptables-save >/dev/null 2>&1; then
-                sudo iptables-save > /etc/iptables/rules.v4 2>/dev/null && echo "Iptables rules saved successfully." || echo "Warning: Could not save iptables rules automatically. Save manually if needed."
-            fi
-            ;;
-        "none")
-            echo "No firewall detected or configured. Skipping port opening. Ensure ports 80 and 443 are accessible if a firewall is later enabled."
-            ;;
-        *)
-            echo "Unsupported firewall system. Please open ports 80 and 443 manually."
-            exit 1
+            sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+            sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+            sudo iptables-save > /etc/iptables.rules || true
             ;;
     esac
+    echo "✅ Firewall ports 80/443 opened."
 }
 
-# Function to verify if ports are open (optional check)
-verify_ports() {
-    if [ "$FIREWALL_RUNNING" == "no" ]; then
-        echo "Firewall is not running, unable to verify port status. Check manually if needed."
-        return
-    fi
-    echo "Verifying if ports 80 and 443 are open..."
-    if [ "$FIREWALL" == "firewalld" ]; then
-        firewall-cmd --list-ports | grep -E '80/tcp|443/tcp' && echo "Ports are open." || echo "Ports may not be open. Check firewall settings."
-    elif [ "$FIREWALL" == "ufw" ]; then
-        ufw status | grep -E '80|443' && echo "Ports are open." || echo "Ports may not be open. Check firewall settings."
-    elif [ "$FIREWALL" == "iptables" ]; then
-        iptables -L -n | grep -E '80|443' && echo "Ports are open." || echo "Ports may not be open. Check firewall settings."
-    else
-        echo "No firewall detected, unable to verify port status. Check manually if needed."
-    fi
+# Init Flask DB and create admin user
+init_app() {
+    cd "$PROJECT_PATH"
+    sudo -u ispbillingservices "$VENV_PATH/bin/flask" db init || true
+    sudo -u ispbillingservices "$VENV_PATH/bin/flask" db migrate -m "Initial" || true
+    sudo -u ispbillingservices "$VENV_PATH/bin/flask" db upgrade
+    sudo -u ispbillingservices "$VENV_PATH/bin/python" << EOF
+from app import create_app, db
+from models import User
+app = create_app()
+with app.app_context():
+    if not User.query.filter_by(username='admin').first():
+        admin = User(username='admin', email='admin@ispbillingservices.com')
+        admin.set_password('admin')
+        db.session.add(admin)
+        db.session.commit()
+        print("✅ Admin created: admin / admin")
+EOF
+    echo "✅ Flask app DB initialized."
 }
 
-# Parse command-line flags
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --clear-database)
-            CLEAR_DB=true
-            shift
-            ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Usage: $0 [--clear-database]"
-            exit 1
-            ;;
-    esac
-done
+# Main execution
+echo "🚀 ISP Billing Services Production Setup"
+cd "$PROJECT_PATH" || { echo "❌ Change to $PROJECT_PATH failed. Clone repo there first."; exit 1; }
+mkdir -p system_files/nginx
 
-# Create APP_DIR and uploads dir
-mkdir -p "$APP_DIR/uploads" && echo "APP_DIR and uploads directory created." || { echo "Failed to create APP_DIR."; exit 1; }
-
-# If clear-database flag is set, only clear and exit
-if [ "$CLEAR_DB" = true ]; then
-    detect_package_manager
-    clear_database
-    echo "Database cleared. Exiting."
-    exit 0
-fi
-
-# Generate Flask secret key and create .env
 generate_secret_key
-create_env_file
-
-# Create system_files and necessary files (including gunicorn.conf.py)
-create_system_files
-
-# Detect the package manager
+update_config
 detect_package_manager
-
-# Install dependencies
 install_dependencies
-
-# Setup PostgreSQL
-setup_postgres
-
-# Set up virtual environment and install requirements
-python3 -m venv "$APP_DIR/venv" && echo "Virtual environment created successfully." || { echo "Failed to create virtual environment."; exit 1; }
-source "$APP_DIR/venv/bin/activate" && echo "Virtual environment activated successfully." || { echo "Failed to activate virtual environment."; exit 1; }
-pip install --upgrade pip && echo "Pip upgraded successfully." || echo "Failed to upgrade pip, continuing with current version."
-pip install -r "$APP_DIR/requirements.txt" && echo "Requirements installation completed." || { echo "Requirements installation failed. Ensure requirements.txt exists."; exit 1; }
-# Explicitly install Gunicorn as a fallback
-pip install gunicorn && echo "Gunicorn installed explicitly." || { echo "Failed to install Gunicorn."; exit 1; }
-
-# Run Flask migrations to set up DB schema (set non-interactive env)
-export FLASK_APP="$APP_FILE"
-export FLASK_ENV=production  # Avoid prompts
-flask db init 2>/dev/null || echo "DB init skipped (may already exist)."
-update_alembic_ini
-# Check if migrations are already up to date by attempting upgrade; skip if no changes or already applied
-flask db current 2>/dev/null | grep -q "head" && echo "Database is already up to date." || {
-    flask db migrate -m "Initial migration" 2>/dev/null || echo "Migration creation skipped (may already exist)."
-    flask db upgrade && echo "Database migrations completed." || echo "Database migration failed or already up to date."
-}
-
-# Create system user
-create_system_user
-
-# Set permissions (including for gunicorn.conf.py)
-sudo chown -R isptracker:isptracker "$APP_DIR" && echo "Permissions set for $APP_DIR successfully." || { echo "Failed to set permissions for $APP_DIR."; exit 1; }
-
-# Copy configuration files before starting the service
-copy_config_files
-
-# Move system files to their proper locations
-move_system_files
-
-# Reload systemd and enable/start the service
-sudo systemctl daemon-reload && echo "Systemd daemon reloaded successfully." || { echo "Failed to reload systemd daemon."; exit 1; }
-sudo systemctl enable --now isp-circuit-invoice-tracker && echo "Systemd service enabled and started successfully." || { echo "Failed to enable and start systemd service."; exit 1; }
-sudo systemctl status isp-circuit-invoice-tracker >/dev/null 2>&1 & wait $! && echo "Systemd service status checked successfully in background." || echo "Failed to check systemd service status in background."
-
-# Set up SSL certificates
-sudo mkdir -p /etc/ssl/private && echo "SSL private directory created successfully." || { echo "Failed to create SSL private directory."; exit 1; }
-sudo chmod 700 /etc/ssl/private && echo "SSL private directory permissions set successfully." || { echo "Failed to set SSL private directory permissions."; exit 1; }
-sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/isp-circuit-invoice-tracker.key -out /etc/ssl/certs/isp-circuit-invoice-tracker.crt -batch && echo "SSL certificates generated successfully." || { echo "Failed to generate SSL certificates."; exit 1; }
-
-# Test and apply Nginx configuration
-sudo nginx -t && echo "Nginx configuration test passed." || { echo "Nginx configuration test failed."; exit 1; }
-sudo systemctl reload nginx && echo "Nginx reloaded successfully." || { echo "Failed to reload Nginx."; exit 1; }
-
-# Firewall configuration
-echo "Starting firewall configuration for ISP Circuit Invoice Tracker..."
+setup_venv
+setup_user
+init_app
+setup_ssl
+create_systemd_service
+create_nginx_config
 detect_firewall
-open_ports
-verify_ports
+open_firewall_ports
 
-echo "Firewall setup complete."
-echo "Setup complete. Log in with admin/adminpassword and change the password."
-
-sudo systemctl restart isp-circuit-invoice-tracker nginx && echo "Final restart of services completed successfully." || { echo "Failed to restart services."; exit 1; }
+echo "🎉 Setup COMPLETE!"
+echo "🌐 Access: https://your-server-ip (self-signed SSL warning OK)"
+echo "👤 Admin: httpS://your-server-ip/login → admin/admin"
+echo "📊 Services: sudo systemctl status ispbillingservices nginx"
+echo "🔄 Logs: sudo journalctl -u ispbillingservices -f"
