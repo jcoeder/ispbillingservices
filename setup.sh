@@ -36,23 +36,6 @@ create_env_file() {
     echo ".env file created successfully at $ENV_FILE."
 }
 
-# Function to update app.py to load .env and update config lines
-update_app_py() {
-    if [ -f "$APP_FILE" ]; then
-        # Add load_dotenv() after imports if not present (using a more specific match)
-        if ! grep -q "^load_dotenv()" "$APP_FILE"; then
-            sed -i '/from dotenv import load_dotenv/a load_dotenv()' "$APP_FILE" && echo "Updated app.py to load .env." || { echo "Failed to update app.py."; exit 1; }
-        fi
-        # Update SECRET_KEY to use os.environ (flexible match)
-        sed -i "s|app.config\['SECRET_KEY'\] = .*|app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key')|" "$APP_FILE" && echo "Updated SECRET_KEY in app.py." || { echo "Failed to update SECRET_KEY."; exit 1; }
-        # Update SQLALCHEMY_DATABASE_URI to use os.environ (flexible match)
-        sed -i "s|app.config\['SQLALCHEMY_DATABASE_URI'\] = .*|app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI', 'postgresql://username:password@localhost/dbname')|" "$APP_FILE" && echo "Updated SQLALCHEMY_DATABASE_URI in app.py." || { echo "Failed to update SQLALCHEMY_DATABASE_URI."; exit 1; }
-    else
-        echo "app.py not found at $APP_FILE."
-        exit 1
-    fi
-}
-
 # Function to create system_files directory and necessary files
 create_system_files() {
     mkdir -p "$SYSTEM_DIR" && echo "system_files directory created." || { echo "Failed to create system_files directory."; exit 1; }
@@ -377,7 +360,6 @@ fi
 # Generate Flask secret key and create .env
 generate_secret_key
 create_env_file
-update_app_py
 
 # Create system_files and necessary files
 create_system_files
