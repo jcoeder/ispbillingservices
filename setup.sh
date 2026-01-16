@@ -152,20 +152,20 @@ install_dependencies() {
             sudo systemctl start postgresql nginx && echo "PostgreSQL and Nginx started successfully." || { echo "Failed to start services."; exit 1; }
             ;;
         "dnf")
-            # Enable PostgreSQL 16 module
+            # Enable and install PostgreSQL 16
             sudo dnf module enable postgresql:16 -y && echo "PostgreSQL 16 module enabled." || { echo "Failed to enable PostgreSQL 16 module."; exit 1; }
-            sudo dnf install -y python3 python3-devel git nginx postgresql-server postgresql-contrib && echo "Dnf package installation completed." || { echo "Dnf package installation failed."; exit 1; }
-            sudo dnf install -y python3-pip python3-virtualenv && echo "Dnf python3-pip and virtualenv installation completed." || echo "python3-pip or virtualenv not available, assuming virtualenv is included in python3."
-            sudo postgresql-setup --initdb && echo "PostgreSQL initialized." || { echo "Failed to initialize PostgreSQL."; exit 1; }
+            sudo dnf install -y python3 python3-devel git nginx postgresql16 postgresql16-server postgresql16-contrib && echo "Dnf package installation completed." || { echo "Dnf package installation failed."; exit 1; }
+            sudo dnf install -y python3-pip python3-venv && echo "Dnf python3-pip and venv installation completed." || echo "python3-pip or venv not available, assuming included in python3."
+            sudo postgresql-16-setup --initdb && echo "PostgreSQL 16 initialized." || { echo "Failed to initialize PostgreSQL 16."; exit 1; }
             sudo systemctl enable postgresql nginx && echo "PostgreSQL and Nginx enabled at startup." || { echo "Failed to enable services."; exit 1; }
             sudo systemctl start postgresql nginx && echo "PostgreSQL and Nginx started successfully." || { echo "Failed to start services."; exit 1; }
             ;;
         "yum")
-            # Enable PostgreSQL 16 module
+            # Enable and install PostgreSQL 16
             sudo yum module enable postgresql:16 -y && echo "PostgreSQL 16 module enabled." || { echo "Failed to enable PostgreSQL 16 module."; exit 1; }
-            sudo yum install -y python3 python3-devel git nginx postgresql-server postgresql-contrib && echo "Yum package installation completed." || { echo "Yum package installation failed."; exit 1; }
-            sudo yum install -y python3-pip python3-virtualenv && echo "Yum python3-pip and virtualenv installation completed." || echo "python3-pip or virtualenv not available, assuming virtualenv is included in python3."
-            sudo postgresql-setup initdb && echo "PostgreSQL initialized." || { echo "Failed to initialize PostgreSQL."; exit 1; }
+            sudo yum install -y python3 python3-devel git nginx postgresql16 postgresql16-server postgresql16-contrib && echo "Yum package installation completed." || { echo "Yum package installation failed."; exit 1; }
+            sudo yum install -y python3-pip python3-venv && echo "Yum python3-pip and venv installation completed." || echo "python3-pip or venv not available, assuming included in python3."
+            sudo postgresql-16-setup initdb && echo "PostgreSQL 16 initialized." || { echo "Failed to initialize PostgreSQL 16."; exit 1; }
             sudo systemctl enable postgresql nginx && echo "PostgreSQL and Nginx enabled at startup." || { echo "Failed to enable services."; exit 1; }
             sudo systemctl start postgresql nginx && echo "PostgreSQL and Nginx started successfully." || { echo "Failed to start services."; exit 1; }
             ;;
@@ -235,7 +235,12 @@ move_system_files() {
         "rhel")
             sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/conf.d/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/conf.d/ (overwritten if existed)." || { echo "Failed to move Nginx config file."; exit 1; }
             sudo cp -f "$SYSTEM_DIR/nginx.conf" /etc/nginx/nginx.conf && echo "Nginx main config replaced (overwritten)." || { echo "Failed to replace Nginx main config."; exit 1; }
+            # Disable default nginx site (RHEL equivalent)
+            sudo rm -f /etc/nginx/conf.d/default.conf && echo "Default nginx conf.d site disabled." || echo "Default nginx conf.d site not found or already disabled."
             sudo setsebool -P httpd_can_network_connect 1 && echo "SELinux boolean set successfully." || { echo "Failed to set SELinux boolean."; exit 1; }
+            # Additional SELinux for Unix socket
+            sudo chcon -t httpd_sys_rw_content_t /tmp/isp-circuit-invoice-tracker.sock 2>/dev/null || echo "SELinux context for socket set (or not needed)."
+            sudo restorecon -v /tmp/isp-circuit-invoice-tracker.sock 2>/dev/null || echo "restorecon on socket (or not needed)."
             ;;
         *)
             echo "Unsupported system type for moving files."
@@ -349,6 +354,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Create APP_DIR and uploads dir
+mkdir -p "$APP_DIR/uploads" && echo "APP_DIR and uploads directory created." || { echo "Failed to create APP_DIR."; exit 1; }
+
 # If clear-database flag is set, only clear and exit
 if [ "$CLEAR_DB" = true ]; then
     detect_package_manager
@@ -377,7 +385,7 @@ setup_postgres
 python3 -m venv "$APP_DIR/venv" && echo "Virtual environment created successfully." || { echo "Failed to create virtual environment."; exit 1; }
 source "$APP_DIR/venv/bin/activate" && echo "Virtual environment activated successfully." || { echo "Failed to activate virtual environment."; exit 1; }
 pip install --upgrade pip && echo "Pip upgraded successfully." || echo "Failed to upgrade pip, continuing with current version."
-pip install -r requirements.txt && echo "Requirements installation completed." || { echo "Requirements installation failed."; exit 1; }
+pip install -r "$APP_DIR/requirements.txt" && echo "Requirements installation completed." || { echo "Requirements installation failed. Ensure requirements.txt exists."; exit 1; }
 
 # Run Flask migrations to set up DB schema (set non-interactive env)
 export FLASK_APP="$APP_FILE"
@@ -410,7 +418,7 @@ sudo systemctl status isp-circuit-invoice-tracker >/dev/null 2>&1 & wait $! && e
 # Set up SSL certificates
 sudo mkdir -p /etc/ssl/private && echo "SSL private directory created successfully." || { echo "Failed to create SSL private directory."; exit 1; }
 sudo chmod 700 /etc/ssl/private && echo "SSL private directory permissions set successfully." || { echo "Failed to set SSL private directory permissions."; exit 1; }
-sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/isp-circuit-invoice-tracker.key -out /etc/ssl/certs/isp-circuit-invoice-tracker.crt -batch && echo "SSL certificates generated successfully." || { echo "Failed to generate SSL certificates."; exit 1; }
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/isp-circuit-invoice-tracker.key -out
 
 # Test and apply Nginx configuration
 sudo nginx -t && echo "Nginx configuration test passed." || { echo "Nginx configuration test failed."; exit 1; }

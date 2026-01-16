@@ -2,7 +2,8 @@ flask
 flask-sqlalchemy
 flask-migrate
 werkzeug
-psycopg2-binary
-gunicorn
 python-dotenv
 pdfplumber
+gunicorn
+psycopg2-binary  # For PostgreSQL support
+alembic  # For migrations

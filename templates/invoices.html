@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Invoices - Billing Account {{ billing_account.account_id }} - ISP Invoice Tracker{% endblock %}
+
+{% block content %}
+<h2>Invoices for Billing Account {{ billing_account.account_id }}</h2>
+
+<h3>Upload New Invoice</h3>
+<form method="POST" enctype="multipart/form-data">
+    <div>
+        <label for="file">Select PDF Invoice:</label>
+        <input type="file" id="file" name="file" accept=".pdf" required>
+    </div>
+    <button type="submit">Upload Invoice</button>
+</form>
+
+<h3>Existing Invoices</h3>
+{% if invoices %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>Filename</th>
+            <th>Uploaded At</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for invoice in invoices %}
+        <tr>
+            <td>{{ invoice.filename }}</td>
+            <td>{{ invoice.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="actions">
+                <a href="{{ url_for('uploaded_file', filename=invoice.filename) }}" target="_blank">View PDF</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No invoices uploaded yet.</p>
+{% endif %}
+
+<div class="actions">
+    <a href="{{ url_for('manage_billing_accounts', vendor_id=billing_account.vendor_id) }}">Back to Billing Accounts</a>
+</div>
+{% endblock %}

@@ -7,13 +7,8 @@
 
 <form method="POST">
     <div>
-        <label for="type">Service Type:</label>
-        <select id="type" name="type" required>
-            <option value="phone" {% if service.type == 'phone' %}selected{% endif %}>Phone</option>
-            <option value="sip" {% if service.type == 'sip' %}selected{% endif %}>SIP</option>
-            <option value="internet" {% if service.type == 'internet' %}selected{% endif %}>Internet</option>
-            <option value="wan" {% if service.type == 'wan' %}selected{% endif %}>WAN</option>
-        </select>
+        <label for="description">Description:</label>
+        <textarea id="description" name="description">{{ service.description or '' }}</textarea>
     </div>
     <div>
         <label for="service_id">Service ID:</label>
@@ -35,14 +30,10 @@
         <label for="account_number">Account Number:</label>
         <input id="account_number" name="account_number" value="{{ service.account_number or '' }}">
     </div>
-    <div>
-        <label for="description">Description:</label>
-        <textarea id="description" name="description">{{ service.description or '' }}</textarea>
-    </div>
     <button type="submit">Update Service</button>
 </form>
 
 <div class="actions">
-    <a href="{{ url_for('manage_services', account_id=service.account_id) }}">Cancel</a>
+    <a href="{{ url_for('manage_services', billing_account_id=service.billing_account_id) }}">Cancel</a>
 </div>
 {% endblock %}

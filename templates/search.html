@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Search Invoices - ISP Invoice Tracker{% endblock %}
+
+{% block content %}
+<h2>Search Invoices</h2>
+
+<form method="GET">
+    <div>
+        <label for="q">Search Query:</label>
+        <input type="text" id="q" name="q" value="{{ query }}" placeholder="Enter search terms..." required>
+    </div>
+    <button type="submit">Search</button>
+</form>
+
+{% if query %}
+<h3>Search Results for "{{ query }}"</h3>
+{% if results %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>Filename</th>
+            <th>Billing Account</th>
+            <th>Vendor</th>
+            <th>Uploaded At</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for invoice in results %}
+        <tr>
+            <td>{{ invoice.filename }}</td>
+            <td>{{ invoice.billing_account.account_id }}</td>
+            <td>{{ invoice.billing_account.vendor.name }}</td>
+            <td>{{ invoice.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="actions">
+                <a href="{{ url_for('uploaded_file', filename=invoice.filename) }}" target="_blank">View PDF</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No invoices found matching your search.</p>
+{% endif %}
+{% endif %}
+{% endblock %}

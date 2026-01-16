@@ -18,6 +18,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = '/opt/isp-circuit-invoice-tracker/uploads'  # Directory for uploaded PDFs
 app.config['ALLOWED_EXTENSIONS'] = {'pdf'}  # Only allow PDF uploads
 
+# Ensure upload folder exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
@@ -110,7 +113,7 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Routes
+# Routes (unchanged from your version, as they look fine)
 @app.route('/')
 def index():
     if 'user_id' not in session:

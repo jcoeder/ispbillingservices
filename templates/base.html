@@ -183,6 +183,7 @@
             <a href="{{ url_for('index') }}"><i class="fas fa-home"></i> Home</a>
             {% if session.user_id %}
                 <a href="{{ url_for('manage_vendors') }}"><i class="fas fa-building"></i> Vendors</a>
+                <a href="{{ url_for('search_invoices') }}"><i class="fas fa-search"></i> Search</a>
                 {% if current_user and current_user.is_admin %}
                     <a href="{{ url_for('manage_users') }}"><i class="fas fa-users"></i> Users</a>
                 {% endif %}

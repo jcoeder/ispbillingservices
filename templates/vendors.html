@@ -28,7 +28,7 @@
         <tr>
             <td>{{ vendor.name }}</td>
             <td class="actions">
-                <a href="{{ url_for('manage_accounts', vendor_id=vendor.id) }}">Manage Accounts</a>
+                <a href="{{ url_for('manage_billing_accounts', vendor_id=vendor.id) }}">Manage Billing Accounts</a>
                 <a href="{{ url_for('all_services', vendor_id=vendor.id) }}">View All Services</a>
             </td>
         </tr>
