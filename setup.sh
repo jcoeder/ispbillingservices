@@ -74,11 +74,11 @@ WantedBy=multi-user.target
 EOF
     echo "Systemd service file created."
 
-    # Create isp-circuit-invoice-tracker.conf for Nginx
+    # Create isp-circuit-invoice-tracker.conf for Nginx (use server_name _ to avoid conflicts)
     cat > "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" << EOF
 server {
     listen 80;
-    server_name localhost;  # Change to your domain if needed
+    server_name _;  # Use _ to catch all unmatched names and avoid conflicts
 
     location = /favicon.ico { access_log off; log_not_found off; }
     location /static {
@@ -244,6 +244,8 @@ move_system_files() {
         "debian")
             sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/sites-available/ (overwritten if existed)." || { echo "Failed to move Nginx config file."; exit 1; }
             sudo ln -sf /etc/nginx/sites-available/isp-circuit-invoice-tracker.conf /etc/nginx/sites-enabled/isp-circuit-invoice-tracker.conf && echo "Nginx config symlink created in sites-enabled (overwritten if existed)." || { echo "Failed to create Nginx config symlink."; exit 1; }
+            # Disable default nginx site to avoid conflicts
+            sudo rm -f /etc/nginx/sites-enabled/default && echo "Default nginx site disabled." || echo "Default nginx site not found or already disabled."
             ;;
         "rhel")
             sudo cp -f "$SYSTEM_DIR/isp-circuit-invoice-tracker.conf" /etc/nginx/conf.d/isp-circuit-invoice-tracker.conf && echo "Nginx config file moved to /etc/nginx/conf.d/ (overwritten if existed)." || { echo "Failed to move Nginx config file."; exit 1; }
