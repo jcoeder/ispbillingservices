@@ -17,18 +17,6 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
-# Seed initial admin on app startup (runs when app is imported)
-with app.app_context():
-    db.create_all()
-    if not User.query.filter_by(username='admin').first():
-        admin_password = os.environ.get('ADMIN_PASSWORD', 'adminpassword')
-        admin = User(username='admin', is_admin=True)
-        admin.set_password(admin_password)
-        db.session.add(admin)
-        db.session.commit()
-        print(f"Admin user created with password: {admin_password}")
-        print("Please change the default password after first login!")
-
 @app.context_processor
 def inject_current_user():
     if 'user_id' in session:
@@ -69,6 +57,21 @@ class Service(db.Model):
     z_location = db.Column(db.String(200), nullable=True)  # Z location, optional
     account_number = db.Column(db.String(100), nullable=True)  # Defaults to account.account_id, editable
     description = db.Column(db.Text, nullable=True)
+
+# Seed initial admin on app startup (runs after models are defined)
+def seed_admin():
+    with app.app_context():
+        db.create_all()
+        if not User.query.filter_by(username='admin').first():
+            admin_password = os.environ.get('ADMIN_PASSWORD', 'adminpassword')
+            admin = User(username='admin', is_admin=True)
+            admin.set_password(admin_password)
+            db.session.add(admin)
+            db.session.commit()
+            print(f"Admin user created with password: {admin_password}")
+            print("Please change the default password after first login!")
+
+seed_admin()  # Call seeding after models are defined
 
 # Decorator for admin required
 def admin_required(f):

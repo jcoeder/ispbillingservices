@@ -424,3 +424,5 @@ verify_ports
 
 echo "Firewall setup complete."
 echo "Setup complete. Log in with admin/adminpassword and change the password."
+
+sudo systemctl restart isp-circuit-invoice-tracker nginx && echo "Final restart of services completed successfully." || { echo "Failed to restart services."; exit 1; }
