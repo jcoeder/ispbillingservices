@@ -1,11 +1,44 @@
-<h1>Accounts for {{ vendor.name }}</h1>
+{% extends "base.html" %}
+
+{% block title %}Accounts - {{ vendor.name }} - ISP Invoice Tracker{% endblock %}
+
+{% block content %}
+<h2>Accounts for {{ vendor.name }}</h2>
+
+<h3>Add New Account</h3>
 <form method="POST">
-    <input name="account_id" placeholder="Account ID" required>
+    <div>
+        <label for="account_id">Account ID:</label>
+        <input id="account_id" name="account_id" placeholder="Account ID" required>
+    </div>
     <button type="submit">Add Account</button>
 </form>
-<ul>
-{% for account in accounts %}
-<li><a href="{{ url_for('manage_services', account_id=account.id) }}">{{ account.account_id }}</a></li>
-{% endfor %}
-</ul>
-<a href="{{ url_for('manage_vendors') }}">Back to Vendors</a>
+
+<h3>Existing Accounts</h3>
+{% if accounts %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>Account ID</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for account in accounts %}
+        <tr>
+            <td>{{ account.account_id }}</td>
+            <td>
+                <a href="{{ url_for('manage_services', account_id=account.id) }}">Manage Services</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No accounts added yet.</p>
+{% endif %}
+
+<div class="actions">
+    <a href="{{ url_for('manage_vendors') }}">Back to Vendors</a>
+</div>
+{% endblock %}

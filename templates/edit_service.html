@@ -1,15 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Service - ISP Invoice Tracker{% endblock %}
+
+{% block content %}
+<h2>Edit Service</h2>
+
 <form method="POST">
-    <select name="type" required>
-        <option value="phone" {% if service.type == 'phone' %}selected{% endif %}>Phone</option>
-        <option value="sip" {% if service.type == 'sip' %}selected{% endif %}>SIP</option>
-        <option value="internet" {% if service.type == 'internet' %}selected{% endif %}>Internet</option>
-        <option value="wan" {% if service.type == 'wan' %}selected{% endif %}>WAN</option>
-    </select>
-    <input name="service_id" value="{{ service.service_id }}">
-    <input name="phone_number" value="{{ service.phone_number }}">
-    <input name="a_location" value="{{ service.a_location }}">
-    <input name="z_location" value="{{ service.z_location }}">
-    <input name="account_number" value="{{ service.account_number }}">
-    <textarea name="description">{{ service.description }}</textarea>
-    <button type="submit">Update</button>
+    <div>
+        <label for="type">Service Type:</label>
+        <select id="type" name="type" required>
+            <option value="phone" {% if service.type == 'phone' %}selected{% endif %}>Phone</option>
+            <option value="sip" {% if service.type == 'sip' %}selected{% endif %}>SIP</option>
+            <option value="internet" {% if service.type == 'internet' %}selected{% endif %}>Internet</option>
+            <option value="wan" {% if service.type == 'wan' %}selected{% endif %}>WAN</option>
+        </select>
+    </div>
+    <div>
+        <label for="service_id">Service ID:</label>
+        <input id="service_id" name="service_id" value="{{ service.service_id or '' }}">
+    </div>
+    <div>
+        <label for="phone_number">Phone Number:</label>
+        <input id="phone_number" name="phone_number" value="{{ service.phone_number or '' }}">
+    </div>
+    <div>
+        <label for="a_location">A Location:</label>
+        <input id="a_location" name="a_location" value="{{ service.a_location or '' }}">
+    </div>
+    <div>
+        <label for="z_location">Z Location:</label>
+        <input id="z_location" name="z_location" value="{{ service.z_location or '' }}">
+    </div>
+    <div>
+        <label for="account_number">Account Number:</label>
+        <input id="account_number" name="account_number" value="{{ service.account_number or '' }}">
+    </div>
+    <div>
+        <label for="description">Description:</label>
+        <textarea id="description" name="description">{{ service.description or '' }}</textarea>
+    </div>
+    <button type="submit">Update Service</button>
 </form>
+
+<div class="actions">
+    <a href="{{ url_for('manage_services', account_id=service.account_id) }}">Cancel</a>
+</div>
+{% endblock %}

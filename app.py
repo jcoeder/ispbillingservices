@@ -10,12 +10,18 @@ import os
 load_dotenv()  # Load environment variables from .env file
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI', 'sqlite:///app.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
+
+@app.context_processor
+def inject_current_user():
+    if 'user_id' in session:
+        return {'current_user': User.query.get(session['user_id'])}
+    return {'current_user': None}
 
 # Models
 class User(db.Model):
@@ -192,7 +198,7 @@ def edit_service(service_id):
         return redirect(url_for('manage_services', account_id=service.account_id))
     return render_template('edit_service.html', service=service)
 
-@app.route('/services/<int:service_id>/delete')
+@app.route('/services/<int:service_id>/delete', methods=['POST'])
 def delete_service(service_id):
     if 'user_id' not in session:
         return redirect(url_for('login'))
@@ -205,10 +211,13 @@ def delete_service(service_id):
 # Seed initial admin
 def seed_admin():
     if not User.query.filter_by(username='admin').first():
+        admin_password = os.environ.get('ADMIN_PASSWORD', 'adminpassword')
         admin = User(username='admin', is_admin=True)
-        admin.set_password('adminpassword')  # Change this!
+        admin.set_password(admin_password)
         db.session.add(admin)
         db.session.commit()
+        print(f"Admin user created with password: {admin_password}")
+        print("Please change the default password after first login!")
 
 if __name__ == '__main__':
     with app.app_context():

@@ -1,10 +1,41 @@
-<h1>Vendors</h1>
+{% extends "base.html" %}
+
+{% block title %}Vendors - ISP Invoice Tracker{% endblock %}
+
+{% block content %}
+<h2>Vendor Management</h2>
+
+<h3>Add New Vendor</h3>
 <form method="POST">
-    <input name="name" placeholder="Vendor Name" required>
+    <div>
+        <label for="name">Vendor Name:</label>
+        <input id="name" name="name" placeholder="Vendor Name" required>
+    </div>
     <button type="submit">Add Vendor</button>
 </form>
-<ul>
-{% for vendor in vendors %}
-<li><a href="{{ url_for('manage_accounts', vendor_id=vendor.id) }}">{{ vendor.name }}</a> - <a href="{{ url_for('all_services', vendor_id=vendor.id) }}">View All Services</a></li>
-{% endfor %}
-</ul>
+
+<h3>Existing Vendors</h3>
+{% if vendors %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>Vendor Name</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for vendor in vendors %}
+        <tr>
+            <td>{{ vendor.name }}</td>
+            <td class="actions">
+                <a href="{{ url_for('manage_accounts', vendor_id=vendor.id) }}">Manage Accounts</a>
+                <a href="{{ url_for('all_services', vendor_id=vendor.id) }}">View All Services</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No vendors added yet.</p>
+{% endif %}
+{% endblock %}
