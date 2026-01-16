@@ -220,7 +220,8 @@ update_alembic_ini() {
 create_system_user() {
     case $SYSTEM_TYPE in
         "debian")
-            sudo adduser --system --shell /bin/false --group isptracker && echo "System user isptracker created (Debian)." || echo "Failed to create system user."
+            sudo groupadd -r isptracker 2>/dev/null || echo "Group isptracker already exists."
+            sudo adduser --system --shell /bin/false --ingroup isptracker isptracker 2>/dev/null && echo "System user isptracker created (Debian)." || echo "User isptracker already exists."
             ;;
         "rhel")
             sudo useradd -r -s /bin/false isptracker && echo "System user isptracker created (RHEL)." || echo "Failed to create system user."
