@@ -5,3 +5,4 @@ werkzeug
 psycopg2-binary
 gunicorn
 python-dotenv
+pdfplumber
