@@ -4,6 +4,6 @@ flask-migrate
 werkzeug
 python-dotenv
 pdfplumber
-gunicorn
+gunicorn  # Added for production WSGI server
 psycopg2-binary  # For PostgreSQL support
 alembic  # For migrations

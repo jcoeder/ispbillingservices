@@ -40,7 +40,7 @@ create_env_file() {
 create_system_files() {
     mkdir -p "$SYSTEM_DIR" && echo "system_files directory created." || { echo "Failed to create system_files directory."; exit 1; }
 
-    # Create isp-circuit-invoice-tracker.service
+    # Create isp-circuit-invoice-tracker.service (updated to use gunicorn.conf.py)
     cat > "$SYSTEM_DIR/isp-circuit-invoice-tracker.service" << EOF
 [Unit]
 Description=ISP Circuit Invoice Tracker Flask App
@@ -51,7 +51,7 @@ User=isptracker
 Group=isptracker
 WorkingDirectory=$APP_DIR
 Environment="PATH=$APP_DIR/venv/bin"
-ExecStart=$APP_DIR/venv/bin/gunicorn --workers 3 --bind unix:/tmp/isp-circuit-invoice-tracker.sock -m 007 app:app
+ExecStart=$APP_DIR/venv/bin/gunicorn --config $APP_DIR/gunicorn.conf.py app:app
 Restart=always
 
 [Install]
@@ -111,6 +111,36 @@ http {
 }
 EOF
     echo "Nginx main config file created for RHEL."
+
+    # Create gunicorn.conf.py
+    cat > "$APP_DIR/gunicorn.conf.py" << EOF
+# gunicorn.conf.py - Configuration for Gunicorn
+
+# Bind to Unix socket (matches systemd service)
+bind = 'unix:/tmp/isp-circuit-invoice-tracker.sock'
+
+# Number of worker processes (adjust based on CPU cores)
+workers = 3
+
+# Worker type (sync is fine for most apps; use gevent for async if needed)
+worker_class = 'sync'
+
+# Permissions for the socket (007 means owner: rwx, group: none, others: none)
+umask = 0o007
+
+# Logging
+loglevel = 'info'
+accesslog = '-'
+errorlog = '-'
+
+# Timeout for workers (increase if your app has long-running requests)
+timeout = 30
+
+# Max requests per worker before restart (prevents memory leaks)
+max_requests = 1000
+max_requests_jitter = 50
+EOF
+    echo "Gunicorn config file created at $APP_DIR/gunicorn.conf.py."
 }
 
 # Function to check and copy configuration files (if any, e.g., sample configs)
@@ -369,7 +399,7 @@ fi
 generate_secret_key
 create_env_file
 
-# Create system_files and necessary files
+# Create system_files and necessary files (including gunicorn.conf.py)
 create_system_files
 
 # Detect the package manager
@@ -386,6 +416,8 @@ python3 -m venv "$APP_DIR/venv" && echo "Virtual environment created successfull
 source "$APP_DIR/venv/bin/activate" && echo "Virtual environment activated successfully." || { echo "Failed to activate virtual environment."; exit 1; }
 pip install --upgrade pip && echo "Pip upgraded successfully." || echo "Failed to upgrade pip, continuing with current version."
 pip install -r "$APP_DIR/requirements.txt" && echo "Requirements installation completed." || { echo "Requirements installation failed. Ensure requirements.txt exists."; exit 1; }
+# Explicitly install Gunicorn as a fallback
+pip install gunicorn && echo "Gunicorn installed explicitly." || { echo "Failed to install Gunicorn."; exit 1; }
 
 # Run Flask migrations to set up DB schema (set non-interactive env)
 export FLASK_APP="$APP_FILE"
@@ -401,7 +433,7 @@ flask db current 2>/dev/null | grep -q "head" && echo "Database is already up to
 # Create system user
 create_system_user
 
-# Set permissions
+# Set permissions (including for gunicorn.conf.py)
 sudo chown -R isptracker:isptracker "$APP_DIR" && echo "Permissions set for $APP_DIR successfully." || { echo "Failed to set permissions for $APP_DIR."; exit 1; }
 
 # Copy configuration files before starting the service
@@ -418,7 +450,7 @@ sudo systemctl status isp-circuit-invoice-tracker >/dev/null 2>&1 & wait $! && e
 # Set up SSL certificates
 sudo mkdir -p /etc/ssl/private && echo "SSL private directory created successfully." || { echo "Failed to create SSL private directory."; exit 1; }
 sudo chmod 700 /etc/ssl/private && echo "SSL private directory permissions set successfully." || { echo "Failed to set SSL private directory permissions."; exit 1; }
-sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/isp-circuit-invoice-tracker.key -out
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/isp-circuit-invoice-tracker.key -out /etc/ssl/certs/isp-circuit-invoice-tracker.crt -batch && echo "SSL certificates generated successfully." || { echo "Failed to generate SSL certificates."; exit 1; }
 
 # Test and apply Nginx configuration
 sudo nginx -t && echo "Nginx configuration test passed." || { echo "Nginx configuration test failed."; exit 1; }
