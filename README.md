@@ -90,13 +90,13 @@ sudo systemctl status nginx
 sudo systemctl status isp-invoice-tracker
 ```
 
-
+sudo systemctl stop ispbillingservices nginx
 sudo ./setup.sh --clear-database
 cd /opt
-sudo rm -rf isp-circuit-invoice-tracker
-sudo git clone https://github.com/jcoeder/isp-circuit-invoice-tracker.git
+sudo rm -rf ispbillingservices
+sudo git clone https://github.com/jcoeder/ispbillingservices.git
 
-cd isp-circuit-invoice-tracker
+cd ispbillingservices
 sudo chmod +x setup.sh
 sudo ./setup.sh
-sudo systemctl restart isp-circuit-invoice-tracker
+sudo systemctl restart ispbillingservices
